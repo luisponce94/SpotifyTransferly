@@ -1,0 +1,28 @@
+# Credenciales, configuración local y certificados
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+*token*.json
+*secret*.json
+
+# Datos personales y respaldos exportados
+spottransfer-backup-*.json
+backups/
+exports/
+private/
+*.log
+
+# Dependencias, perfiles de navegador y archivos temporales
+node_modules/
+.browser-profile/
+test-results/
+playwright-report/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
