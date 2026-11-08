@@ -1,7 +1,7 @@
 {
   "name": "musictransferly",
-  "version": "1.1.0",
-  "description": "Migrador bidireccional gratuito y local de playlists entre Spotify y YouTube Music con OAuth PKCE",
+  "version": "1.2.0",
+  "description": "Migrador universal y local de playlists entre Spotify, YouTube Music y Deezer con OAuth PKCE",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,6 +9,7 @@
   "keywords": [
     "spotify",
     "youtube-music",
+    "deezer",
     "playlist-transfer",
     "migration",
     "pkce",

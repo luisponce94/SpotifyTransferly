@@ -46,7 +46,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: https://*.googleusercontent.com https://*.ytimg.com; connect-src 'self' https://api.spotify.com https://accounts.spotify.com https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com;");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: https://*.googleusercontent.com https://*.ytimg.com https://*.deezer.com https://*.dzcdn.net; connect-src 'self' https://api.spotify.com https://accounts.spotify.com https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com https://connect.deezer.com https://api.deezer.com;");
     if (!allowedHosts.includes(hostHeader) ||
         (req.headers.origin && !allowedHosts.some(host => req.headers.origin === `http://${host}`))) {
         res.writeHead(403);
@@ -203,6 +203,153 @@ const server = http.createServer(async (req, res) => {
                         'Content-Type': 'application/json',
                     });
                     res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+                }
+            }
+        });
+        return;
+    }
+
+    // Backend Proxy for Deezer Token Exchange
+    if (pathname === '/api/deezer/token' && req.method === 'POST') {
+        let body = '';
+        let destroyed = false;
+
+        req.on('error', (err) => {
+            console.warn('[Deezer Proxy Stream Error]:', err.message);
+            if (!res.headersSent) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Bad Request', details: err.message }));
+            }
+        });
+
+        req.on('data', chunk => {
+            if (destroyed) return;
+            body += chunk;
+            if (body.length > 16384) {
+                destroyed = true;
+                res.writeHead(413, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Payload Too Large' }));
+                req.destroy();
+            }
+        });
+
+        req.on('end', async () => {
+            if (destroyed) return;
+            try {
+                const params = new URLSearchParams(body);
+                const appId = params.get('app_id');
+                const secret = params.get('secret');
+                const code = params.get('code');
+
+                if (!appId || !secret || !code) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Faltan parámetros requeridos (app_id, secret, code)' }));
+                    return;
+                }
+
+                console.log('[Deezer Token Proxy] Intercambiando código con Deezer...');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+                const deezerTokenUrl = `https://connect.deezer.com/oauth/access_token.php?app_id=${encodeURIComponent(appId)}&secret=${encodeURIComponent(secret)}&code=${encodeURIComponent(code)}&output=json`;
+                const deezerRes = await fetch(deezerTokenUrl, {
+                    method: 'GET',
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+
+                const rawText = await deezerRes.text();
+                console.log(`[Deezer Token Proxy] Respuesta Deezer (HTTP ${deezerRes.status})`);
+
+                let resultJson = {};
+                try {
+                    resultJson = JSON.parse(rawText);
+                } catch (e) {
+                    // Fallback si Deezer responde como query string (ej. access_token=...&expires=...)
+                    const parsedQs = new URLSearchParams(rawText);
+                    if (parsedQs.get('access_token')) {
+                        resultJson = {
+                            access_token: parsedQs.get('access_token'),
+                            expires: parsedQs.get('expires')
+                        };
+                    } else {
+                        resultJson = { error: rawText };
+                    }
+                }
+
+                res.writeHead(deezerRes.status, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(resultJson));
+            } catch (err) {
+                console.error('[Deezer Token Proxy Error]:', err);
+                if (!res.headersSent) {
+                    res.writeHead(502, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+                }
+            }
+        });
+        return;
+    }
+
+    // Backend Proxy for Deezer REST API (para sortear restricciones de CORS de Deezer)
+    if (pathname === '/api/deezer/proxy') {
+        const targetPath = parsedUrl.searchParams.get('path') || '';
+        // Validación estricta anti-SSRF: debe iniciar con / y no contener .. o esquemas
+        if (!targetPath.startsWith('/') || targetPath.includes('..') || targetPath.includes('://')) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid_path', error_description: 'Ruta de API Deezer no permitida' }));
+            return;
+        }
+
+        let body = '';
+        let destroyed = false;
+
+        req.on('error', (err) => {
+            console.warn('[Deezer API Proxy Stream Error]:', err.message);
+            if (!res.headersSent) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Bad Request', details: err.message }));
+            }
+        });
+
+        req.on('data', chunk => {
+            if (destroyed) return;
+            body += chunk;
+            if (body.length > 32768) {
+                destroyed = true;
+                res.writeHead(413, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Payload Too Large' }));
+                req.destroy();
+            }
+        });
+
+        req.on('end', async () => {
+            if (destroyed) return;
+            try {
+                const deezerApiUrl = `https://api.deezer.com${targetPath}`;
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+                const fetchOptions = {
+                    method: req.method === 'POST' ? 'POST' : 'GET',
+                    signal: controller.signal
+                };
+
+                if (req.method === 'POST' && body) {
+                    fetchOptions.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+                    fetchOptions.body = body;
+                }
+
+                const apiRes = await fetch(deezerApiUrl, fetchOptions);
+                clearTimeout(timeoutId);
+
+                const data = await apiRes.text();
+                res.writeHead(apiRes.status, { 'Content-Type': 'application/json' });
+                res.end(data);
+            } catch (err) {
+                console.error('[Deezer API Proxy Error]:', err);
+                if (!res.headersSent) {
+                    res.writeHead(502, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Deezer API proxy request failed', details: err.message }));
                 }
             }
         });

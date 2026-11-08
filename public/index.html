@@ -25,6 +25,13 @@
                             dark: '#0f0f0f',
                             card: '#1f1f1f',
                             border: '#333333'
+                        },
+                        deezer: {
+                            purple: '#a238ff',
+                            hover: '#b85cff',
+                            dark: '#160926',
+                            card: '#220e3b',
+                            border: '#3c1866'
                         }
                     }
                 }
@@ -46,9 +53,9 @@
                 </div>
                 <div>
                     <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                        MusicTransferly <span class="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">Spotify ⇄ YouTube Music</span>
+                        MusicTransferly <span class="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">Spotify ⇄ YouTube ⇄ Deezer</span>
                     </h1>
-                    <p class="text-xs text-gray-400">Migrador bidireccional de Playlists entre plataformas de música</p>
+                    <p class="text-xs text-gray-400">Migrador universal de Playlists entre plataformas de música</p>
                 </div>
             </div>
 
@@ -113,47 +120,60 @@
                     </p>
                 </div>
 
-                <!-- Mode Selector Cards -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5" id="transfer-mode-selector">
-                    <button type="button" data-mode="spotify-to-yt" class="route-card p-4 rounded-xl border-2 border-spotify-green bg-spotify-dark/80 text-left transition flex items-center justify-between">
-                        <div>
-                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
-                                <span class="text-spotify-green">🟢 Spotify</span> ➔ <span class="text-red-500">🔴 YouTube Music</span>
-                            </div>
-                            <div class="text-xs text-gray-400 mt-1">Transfiere tus playlists de Spotify a YouTube Music</div>
+                <!-- Platform Selectors: Origen & Destino -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <!-- Origen Selector -->
+                    <div class="bg-black/40 border border-spotify-border rounded-xl p-4 space-y-3">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-gray-400">
+                            1. Plataforma de Origen (¿De dónde vienen tus listas?)
+                        </label>
+                        <div class="grid grid-cols-3 gap-2" id="source-platform-selector">
+                            <button type="button" data-platform="spotify" class="plat-src-btn p-3 rounded-xl border border-spotify-green bg-spotify-green/10 text-center transition flex flex-col items-center justify-center gap-1.5 hover:border-spotify-green">
+                                <span class="text-xl">🟢</span>
+                                <span class="text-xs font-bold text-white">Spotify</span>
+                            </button>
+                            <button type="button" data-platform="youtube" class="plat-src-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-gray-500">
+                                <span class="text-xl">🔴</span>
+                                <span class="text-xs font-bold text-white">YouTube</span>
+                            </button>
+                            <button type="button" data-platform="deezer" class="plat-src-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-purple-500">
+                                <span class="text-xl">🟣</span>
+                                <span class="text-xs font-bold text-white">Deezer</span>
+                            </button>
                         </div>
-                        <span class="route-check text-spotify-green font-bold text-xl">✓</span>
-                    </button>
+                    </div>
 
-                    <button type="button" data-mode="yt-to-spotify" class="route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100">
-                        <div>
-                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
-                                <span class="text-red-500">🔴 YouTube Music</span> ➔ <span class="text-spotify-green">🟢 Spotify</span>
-                            </div>
-                            <div class="text-xs text-gray-400 mt-1">Transfiere tus playlists de YouTube a tu cuenta de Spotify</div>
+                    <!-- Destino Selector -->
+                    <div class="bg-black/40 border border-spotify-border rounded-xl p-4 space-y-3">
+                        <label class="block text-xs font-bold uppercase tracking-wider text-gray-400">
+                            2. Plataforma de Destino (¿A dónde las transferirás?)
+                        </label>
+                        <div class="grid grid-cols-3 gap-2" id="dest-platform-selector">
+                            <button type="button" data-platform="spotify" class="plat-dst-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-spotify-green">
+                                <span class="text-xl">🟢</span>
+                                <span class="text-xs font-bold text-white">Spotify</span>
+                            </button>
+                            <button type="button" data-platform="youtube" class="plat-dst-btn p-3 rounded-xl border border-red-500 bg-red-500/10 text-center transition flex flex-col items-center justify-center gap-1.5 hover:border-red-500">
+                                <span class="text-xl">🔴</span>
+                                <span class="text-xs font-bold text-white">YouTube</span>
+                            </button>
+                            <button type="button" data-platform="deezer" class="plat-dst-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-purple-500">
+                                <span class="text-xl">🟣</span>
+                                <span class="text-xs font-bold text-white">Deezer</span>
+                            </button>
                         </div>
-                        <span class="route-check text-spotify-green font-bold text-xl hidden">✓</span>
-                    </button>
+                    </div>
+                </div>
 
-                    <button type="button" data-mode="spotify-to-spotify" class="route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100">
-                        <div>
-                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
-                                <span class="text-spotify-green">🟢 Spotify</span> ➔ <span class="text-spotify-green">🟢 Spotify</span>
-                            </div>
-                            <div class="text-xs text-gray-400 mt-1">Clonar canciones entre dos cuentas de Spotify</div>
-                        </div>
-                        <span class="route-check text-spotify-green font-bold text-xl hidden">✓</span>
-                    </button>
-
-                    <button type="button" data-mode="yt-to-yt" class="route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100">
-                        <div>
-                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
-                                <span class="text-red-500">🔴 YouTube Music</span> ➔ <span class="text-red-500">🔴 YouTube Music</span>
-                            </div>
-                            <div class="text-xs text-gray-400 mt-1">Clonar canciones entre dos cuentas de Google/YouTube</div>
-                        </div>
-                        <span class="route-check text-spotify-green font-bold text-xl hidden">✓</span>
-                    </button>
+                <!-- Active Route Banner -->
+                <div class="bg-gradient-to-r from-spotify-dark via-spotify-card to-spotify-dark border border-spotify-border rounded-xl p-3.5 flex items-center justify-between text-xs">
+                    <div class="flex items-center gap-2">
+                        <span class="text-gray-400">Ruta seleccionada:</span>
+                        <span id="active-route-badge" class="font-bold text-white bg-black/60 px-3 py-1 rounded-lg border border-spotify-border flex items-center gap-2">
+                            🟢 Spotify ➔ 🔴 YouTube Music
+                        </span>
+                    </div>
+                    <span class="text-gray-500 text-[11px] hidden sm:inline">Migración directa local</span>
                 </div>
 
                 <!-- Shared Redirect URI Box -->
@@ -203,6 +223,24 @@
                     </ol>
                 </details>
 
+                <!-- Guide Collapsible: Deezer -->
+                <details id="guide-deezer" class="group bg-black/60 border border-spotify-border rounded-xl p-4 text-xs text-gray-300">
+                    <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                            <span class="text-purple-400 font-bold">🟣 Guía:</span> ¿Cómo obtener tu Deezer App ID y Secret gratis? (1 min)
+                        </span>
+                        <span class="text-gray-500 group-open:rotate-180 transition">▼</span>
+                    </summary>
+                    <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
+                        <li>Entra al <a href="https://developers.deezer.com/myapps" target="_blank" rel="noopener noreferrer" class="text-purple-400 underline font-bold">Deezer Developer Portal</a> e inicia sesión con tu cuenta.</li>
+                        <li>Haz clic en <strong class="text-white">Crear una nueva aplicación</strong> (Create a new application).</li>
+                        <li>En <strong class="text-white">Nombre de la aplicación</strong> pon: <strong>MusicTransferly</strong>.</li>
+                        <li>En <strong class="text-white">Dominio de la aplicación</strong> pon: <code class="text-purple-400 font-mono">127.0.0.1</code></li>
+                        <li>En <strong class="text-white">URL de redireccionamiento</strong> pon: <code class="text-purple-400 font-mono">http://127.0.0.1:3000/callback</code></li>
+                        <li>Guarda los cambios, copia tu <strong class="text-white">ID de la aplicación</strong> (App ID) y la <strong class="text-white">Clave secreta</strong> (Secret Key) y pégalos abajo.</li>
+                    </ol>
+                </details>
+
                 <!-- Form: Client IDs -->
                 <form id="form-config" class="space-y-4">
                     <div id="field-spotify-client-id">
@@ -225,6 +263,22 @@
                             </label>
                             <input type="password" id="input-google-client-secret" placeholder="Ej: GOCSPX-..." class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
                             <p class="text-[11px] text-gray-500 mt-1">Requerido por Google Cloud para aplicaciones web. Se conserva localmente en tu navegador sin servidores externos.</p>
+                        </div>
+                    </div>
+
+                    <div id="field-deezer-credentials" class="space-y-3">
+                        <div>
+                            <label for="input-deezer-app-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                <span class="text-purple-400">🟣</span> Deezer App ID:
+                            </label>
+                            <input type="text" id="input-deezer-app-id" placeholder="Ej: 648392" class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                        </div>
+                        <div>
+                            <label for="input-deezer-secret" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                <span class="text-purple-400">🟣</span> Deezer Secret Key:
+                            </label>
+                            <input type="password" id="input-deezer-secret" placeholder="Ej: 9f8e7d6c..." class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                            <p class="text-[11px] text-gray-500 mt-1">Clave secreta de tu aplicación Deezer. Se conserva únicamente en tu navegador local.</p>
                         </div>
                     </div>
 

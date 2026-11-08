@@ -1,33 +1,30 @@
 /**
  * ====================================================================
- * MusicTransferly - Motor de Migración Bidireccional
- * Spotify ⇄ YouTube Music (y Spotify ➔ Spotify / YouTube ➔ YouTube)
+ * MusicTransferly - Motor Universal de Migración Musical
+ * Spotify ⇄ YouTube Music ⇄ Deezer (Cualquier origen a cualquier destino)
  * ====================================================================
- * ¿CÓMO FUNCIONA LA TRANSFERENCIA EXACTAMENTE?
+ * ¿CÓMO FUNCIONA LA TRANSFERENCIA UNIVERSAL?
  * 
- * 1. AUTENTICACIÓN PKCE (OAuth 2.0 sin Client Secret):
- *    - Ambas plataformas (Spotify y Google/YouTube) son autorizadas mediante
- *      el estándar seguro Proof Key for Code Exchange (PKCE, RFC 7636).
- *    - Se genera un `code_verifier` criptográfico aleatorio y su hash SHA-256 (`code_challenge`).
- *    - Los tokens resultantes se almacenan exclusivamente en `sessionStorage` del navegador
- *      (se destruyen automáticamente al cerrar la pestaña), sin servidores externos.
+ * 1. AUTENTICACIÓN SEGURA MULTI-PROVEEDOR:
+ *    - Spotify & Google/YouTube: Estándar OAuth 2.0 PKCE (RFC 7636) con hash SHA-256.
+ *    - Deezer: OAuth 2.0 a través del proxy local en 127.0.0.1 (evitando CORS).
+ *    - Todos los tokens residen exclusivamente en `sessionStorage` (destruidos al cerrar la pestaña).
  * 
- * 2. GESTIÓN MULTI-PLATAFORMA (4 Rutas Posibles):
- *    - 🟢 Spotify ➔ 🔴 YouTube Music: Lee URIs y metadatos, busca videos oficiales en YouTube
- *      y crea las playlists en YouTube Music.
- *    - 🔴 YouTube Music ➔ 🟢 Spotify: Lee listas de YouTube, normaliza y limpia los títulos
- *      (eliminando [Official Video], HD, etc.) y busca las canciones en Spotify por ISMN/título/artista.
- *    - 🟢 Spotify ➔ 🟢 Spotify: Clonado directo de playlists entre cuentas de Spotify.
- *    - 🔴 YouTube ➔ 🔴 YouTube: Clonado directo de playlists entre cuentas de Google/YouTube.
+ * 2. MATRIZ DE MIGRACIÓN CRUZADA (9 RUTAS POSIBLES + JSON):
+ *    - Spotify ➔ YouTube Music / Deezer / Spotify
+ *    - YouTube Music ➔ Spotify / Deezer / YouTube
+ *    - Deezer ➔ Spotify / YouTube Music / Deezer
+ *    - Exportación e importación universal en formato JSON offline.
  * 
- * 3. CONTROL DE RENDIMIENTO Y LÍMITES DE API:
- *    - Manejo automático de HTTP 429 con `Retry-After`.
- *    - Renovación transparente de tokens expirados (HTTP 401) con `refresh_token`.
- *    - Lotes controlados y pausas para respetar las cuotas diarias de la YouTube Data API.
+ * 3. ALGORITMOS DE EMPAREJAMIENTO INTELIGENTE:
+ *    - YouTube: Normalizador y limpiador heurístico de títulos (`cleanYouTubeTitle`).
+ *    - Spotify: Búsqueda escalonada con campos exactos entrecomillados y fallback libre.
+ *    - Deezer: Búsqueda cruzada por metadatos (ISRC, track, artist) y lotes optimizados.
+ *    - Control de límites de cuota (YouTube quotaExceeded, Spotify 429 Retry-After, Deezer limits).
  * ====================================================================
  */
 
-// Enforce 127.0.0.1 to maintain identical localStorage/sessionStorage across redirects
+// Forzar 127.0.0.1 para mantener localStorage y sessionStorage idénticos en redirecciones
 if (window.location.hostname === 'localhost') {
     window.location.replace(window.location.href.replace('localhost', '127.0.0.1'));
 }
@@ -36,13 +33,12 @@ if (window.location.hostname === 'localhost') {
 const currentPort = window.location.port ? `:${window.location.port}` : '';
 const state = {
     step: 1,
-    transferMode: localStorage.getItem('transfer_mode') || 'spotify-to-yt',
-    clientId: localStorage.getItem('spot_client_id') || '',
-    googleClientId: localStorage.getItem('google_client_id') || '',
-    googleClientSecret: localStorage.getItem('google_client_secret') || '',
+    sourcePlatform: localStorage.getItem('source_platform') || 'spotify',
+    destPlatform: localStorage.getItem('dest_platform') || 'youtube',
     redirectUri: `${window.location.protocol}//127.0.0.1${currentPort}/callback`,
 
-    // Spotify Tokens & Profiles
+    // Spotify Credentials & Tokens
+    clientId: localStorage.getItem('spot_client_id') || '',
     sourceToken: sessionStorage.getItem('spot_source_token') || '',
     sourceRefreshToken: sessionStorage.getItem('spot_source_refresh_token') || '',
     sourceProfile: JSON.parse(sessionStorage.getItem('spot_source_profile') || 'null'),
@@ -50,13 +46,23 @@ const state = {
     destRefreshToken: sessionStorage.getItem('spot_dest_refresh_token') || '',
     destProfile: JSON.parse(sessionStorage.getItem('spot_dest_profile') || 'null'),
 
-    // YouTube / Google Tokens & Profiles
+    // Google / YouTube Credentials & Tokens
+    googleClientId: localStorage.getItem('google_client_id') || '',
+    googleClientSecret: localStorage.getItem('google_client_secret') || '',
     ytSourceToken: sessionStorage.getItem('yt_source_token') || '',
     ytSourceRefreshToken: sessionStorage.getItem('yt_source_refresh_token') || '',
     ytSourceProfile: JSON.parse(sessionStorage.getItem('yt_source_profile') || 'null'),
     ytDestToken: sessionStorage.getItem('yt_dest_token') || '',
     ytDestRefreshToken: sessionStorage.getItem('yt_dest_refresh_token') || '',
     ytDestProfile: JSON.parse(sessionStorage.getItem('yt_dest_profile') || 'null'),
+
+    // Deezer Credentials & Tokens
+    deezerAppId: localStorage.getItem('deezer_app_id') || '',
+    deezerSecret: localStorage.getItem('deezer_secret') || '',
+    deezerSourceToken: sessionStorage.getItem('deezer_source_token') || '',
+    deezerSourceProfile: JSON.parse(sessionStorage.getItem('deezer_source_profile') || 'null'),
+    deezerDestToken: sessionStorage.getItem('deezer_dest_token') || '',
+    deezerDestProfile: JSON.parse(sessionStorage.getItem('deezer_dest_profile') || 'null'),
 
     // Playlists & Transfer state
     playlists: JSON.parse(localStorage.getItem('spot_playlists') || '[]'),
@@ -66,31 +72,56 @@ const state = {
 
 // Limpieza de seguridad: borrar cualquier token residual de localStorage antiguo
 ['spot_source_token', 'spot_dest_token', 'spot_source_refresh_token', 'spot_dest_refresh_token',
- 'yt_source_token', 'yt_dest_token', 'yt_source_refresh_token', 'yt_dest_refresh_token'].forEach(k => localStorage.removeItem(k));
+ 'yt_source_token', 'yt_dest_token', 'yt_source_refresh_token', 'yt_dest_refresh_token',
+ 'deezer_source_token', 'deezer_dest_token'].forEach(k => localStorage.removeItem(k));
 
 // Platform mapping helpers
 function getSourcePlatform() {
-    return state.transferMode.startsWith('yt') ? 'youtube' : 'spotify';
+    return state.sourcePlatform;
 }
 
 function getDestPlatform() {
-    return state.transferMode.endsWith('yt') ? 'youtube' : 'spotify';
+    return state.destPlatform;
 }
 
 function getSourceToken() {
-    return getSourcePlatform() === 'youtube' ? state.ytSourceToken : state.sourceToken;
+    const p = getSourcePlatform();
+    if (p === 'youtube') return state.ytSourceToken;
+    if (p === 'deezer') return state.deezerSourceToken;
+    return state.sourceToken;
 }
 
 function getDestToken() {
-    return getDestPlatform() === 'youtube' ? state.ytDestToken : state.destToken;
+    const p = getDestPlatform();
+    if (p === 'youtube') return state.ytDestToken;
+    if (p === 'deezer') return state.deezerDestToken;
+    return state.destToken;
 }
 
 function getSourceProfile() {
-    return getSourcePlatform() === 'youtube' ? state.ytSourceProfile : state.sourceProfile;
+    const p = getSourcePlatform();
+    if (p === 'youtube') return state.ytSourceProfile;
+    if (p === 'deezer') return state.deezerSourceProfile;
+    return state.sourceProfile;
 }
 
 function getDestProfile() {
-    return getDestPlatform() === 'youtube' ? state.ytDestProfile : state.destProfile;
+    const p = getDestPlatform();
+    if (p === 'youtube') return state.ytDestProfile;
+    if (p === 'deezer') return state.deezerDestProfile;
+    return state.destProfile;
+}
+
+function getPlatformIcon(platform) {
+    if (platform === 'youtube') return '🔴';
+    if (platform === 'deezer') return '🟣';
+    return '🟢';
+}
+
+function getPlatformName(platform) {
+    if (platform === 'youtube') return 'YouTube Music';
+    if (platform === 'deezer') return 'Deezer';
+    return 'Spotify';
 }
 
 // Persistence helper for playlists
@@ -157,7 +188,7 @@ const dots = {
 const stepperLine = document.getElementById('stepper-line');
 
 // ==========================================
-// 1. PKCE Helper Functions
+// 1. PKCE & OAuth Helper Functions
 // ==========================================
 function generateRandomString(length) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
@@ -188,11 +219,7 @@ function base64UrlEncode(buffer) {
         .replace(/=+$/, '');
 }
 
-// ==========================================
-// 2. OAuth PKCE Flow - Spotify & Google
-// ==========================================
-
-// Iniciar autorización Spotify (mode = 'source' | 'destination')
+// Iniciar autorización Spotify
 async function initiateSpotifyAuth(mode) {
     if (!state.clientId) {
         alert('Por favor configura primero tu Spotify Client ID.');
@@ -237,7 +264,7 @@ async function initiateSpotifyAuth(mode) {
     window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
 }
 
-// Iniciar autorización Google / YouTube (mode = 'source' | 'destination')
+// Iniciar autorización Google / YouTube
 async function initiateGoogleAuth(mode) {
     if (!state.googleClientId) {
         alert('Por favor configura primero tu Google / YouTube Client ID.');
@@ -277,11 +304,40 @@ async function initiateGoogleAuth(mode) {
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-// Iniciar login dinámicamente según plataforma del paso actual
+// Iniciar autorización Deezer
+function initiateDeezerAuth(mode) {
+    if (!state.deezerAppId || !state.deezerSecret) {
+        alert('Por favor configura primero tu Deezer App ID y Secret Key.');
+        setStep(1);
+        return;
+    }
+
+    savePlaylists();
+
+    const oauthState = `deezer_${mode}_${generateRandomString(24)}`;
+    sessionStorage.setItem('oauth_expected_state', oauthState);
+    sessionStorage.setItem('oauth_auth_mode', mode);
+    sessionStorage.setItem('oauth_platform', 'deezer');
+
+    const perms = 'basic_access,email,offline_access,manage_library,delete_library';
+    const params = new URLSearchParams({
+        app_id: state.deezerAppId,
+        redirect_uri: state.redirectUri,
+        response_type: 'code',
+        perms: perms,
+        state: oauthState
+    });
+
+    window.location.href = `https://connect.deezer.com/oauth/auth.php?${params.toString()}`;
+}
+
+// Despachador de login según plataforma del paso actual
 function initiateAuth(target) {
     const platform = (target === 'source') ? getSourcePlatform() : getDestPlatform();
     if (platform === 'youtube') {
         initiateGoogleAuth(target);
+    } else if (platform === 'deezer') {
+        initiateDeezerAuth(target);
     } else {
         initiateSpotifyAuth(target);
     }
@@ -320,6 +376,23 @@ async function exchangeGoogleCode(code, verifier) {
     }
 
     const res = await fetch('/api/youtube/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: payload.toString()
+    });
+
+    return await res.json();
+}
+
+// Exchange Deezer authorization code
+async function exchangeDeezerCode(code) {
+    const payload = new URLSearchParams({
+        app_id: state.deezerAppId,
+        secret: state.deezerSecret,
+        code: code
+    });
+
+    const res = await fetch('/api/deezer/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: payload.toString()
@@ -402,10 +475,10 @@ async function refreshGoogleToken(mode) {
 }
 
 // ==========================================
-// 3. API Callers (Spotify & YouTube)
+// 2. API Callers (Spotify, YouTube, Deezer)
 // ==========================================
 
-// Authenticated Spotify API caller
+// Spotify API caller
 async function spotifyApi(token, endpoint, options = {}) {
     const url = new URL(endpoint.startsWith('http') ? endpoint : `https://api.spotify.com/v1${endpoint}`);
     if (url.origin !== 'https://api.spotify.com') throw new Error('Destino de API no permitido.');
@@ -445,7 +518,6 @@ async function spotifyApi(token, endpoint, options = {}) {
                 err.status = res.status;
                 err.statusText = res.statusText;
 
-                // Auto-refresh token ante 401 si no se ha intentado ya
                 if (res.status === 401 && !options._isRetryAfterRefresh) {
                     const mode = (token === state.sourceToken) ? 'source' : ((token === state.destToken) ? 'destination' : null);
                     if (mode) {
@@ -459,19 +531,12 @@ async function spotifyApi(token, endpoint, options = {}) {
                     }
                 }
 
-                if ([400, 401, 403, 404].includes(res.status)) {
-                    throw err;
-                }
+                if ([400, 401, 403, 404].includes(res.status)) throw err;
                 throw err;
             }
 
             if (!text || text.trim().length === 0) return null;
-
-            try {
-                return JSON.parse(text);
-            } catch (e) {
-                return text;
-            }
+            try { return JSON.parse(text); } catch (e) { return text; }
         } catch (err) {
             if (err.status && [400, 401, 403, 404].includes(err.status)) throw err;
             if (attempts >= 5) throw err;
@@ -480,7 +545,7 @@ async function spotifyApi(token, endpoint, options = {}) {
     }
 }
 
-// Authenticated YouTube Data API caller
+// YouTube Data API caller
 async function youtubeApi(token, endpoint, options = {}) {
     const url = new URL(endpoint.startsWith('http') ? endpoint : `https://www.googleapis.com/youtube/v3${endpoint}`);
     if (url.origin !== 'https://www.googleapis.com' && url.origin !== 'https://oauth2.googleapis.com') {
@@ -529,7 +594,6 @@ async function youtubeApi(token, endpoint, options = {}) {
                 err.statusText = res.statusText;
                 err.isQuotaExceeded = isQuota;
 
-                // Auto-refresh token ante 401
                 if (res.status === 401 && !options._isRetryAfterRefresh) {
                     const mode = (token === state.ytSourceToken) ? 'source' : ((token === state.ytDestToken) ? 'destination' : null);
                     if (mode) {
@@ -548,12 +612,7 @@ async function youtubeApi(token, endpoint, options = {}) {
             }
 
             if (!text || text.trim().length === 0) return null;
-
-            try {
-                return JSON.parse(text);
-            } catch (e) {
-                return text;
-            }
+            try { return JSON.parse(text); } catch (e) { return text; }
         } catch (err) {
             if (err.status && [400, 401, 403, 404].includes(err.status)) throw err;
             if (attempts >= 5) throw err;
@@ -562,11 +621,43 @@ async function youtubeApi(token, endpoint, options = {}) {
     }
 }
 
+// Deezer REST API caller (vía proxy local para sortear CORS)
+async function deezerApi(token, endpoint, options = {}) {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    const authedPath = `${endpoint}${separator}access_token=${encodeURIComponent(token)}`;
+    const proxyUrl = `/api/deezer/proxy?path=${encodeURIComponent(authedPath)}`;
+
+    let attempts = 0;
+    while (attempts < 4) {
+        attempts++;
+        try {
+            const res = await fetch(proxyUrl, options);
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status} al consultar Deezer`);
+            }
+            const data = await res.json();
+            if (data.error) {
+                // Control de rate limit en Deezer
+                if (data.error.code === 4 || (data.error.message || '').includes('quota')) {
+                    logMessage(`[Aviso] Límite de Deezer alcanzado. Pausando 2s...`);
+                    await sleep(2000);
+                    continue;
+                }
+                throw new Error(data.error.message || 'Error en Deezer API');
+            }
+            return data;
+        } catch (err) {
+            if (attempts >= 4) throw err;
+            await sleep(1000 * attempts);
+        }
+    }
+}
+
 // ==========================================
-// 4. YouTube Helper Functions
+// 3. YouTube & Deezer Helper Functions
 // ==========================================
 
-// Cargar perfil de Google del usuario
+// Google Profile
 async function loadGoogleProfile(token) {
     const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -575,7 +666,7 @@ async function loadGoogleProfile(token) {
     return await res.json();
 }
 
-// Cargar listas del usuario de YouTube
+// YouTube Playlists
 async function loadYouTubePlaylists(token) {
     let playlists = [];
     let pageToken = '';
@@ -595,7 +686,6 @@ async function loadYouTubePlaylists(token) {
     return playlists;
 }
 
-// Obtener canciones de una playlist de YouTube
 async function fetchYouTubePlaylistTracks(token, playlistId) {
     let tracks = [];
     let pageToken = '';
@@ -626,7 +716,6 @@ async function fetchYouTubePlaylistTracks(token, playlistId) {
     return tracks;
 }
 
-// Crear playlist en YouTube
 async function createYouTubePlaylist(token, title, description, isPrivate) {
     const body = {
         snippet: {
@@ -644,7 +733,6 @@ async function createYouTubePlaylist(token, title, description, isPrivate) {
     });
 }
 
-// Añadir video a una playlist de YouTube
 async function addVideoToYouTubePlaylist(token, playlistId, videoId) {
     const body = {
         snippet: {
@@ -662,7 +750,6 @@ async function addVideoToYouTubePlaylist(token, playlistId, videoId) {
     });
 }
 
-// Buscar video en YouTube correspondiente a una canción (con Music category)
 async function searchYouTubeVideo(token, title, artist) {
     const cleanT = cleanTitleForSearch(title);
     const query = artist ? `${artist} - ${cleanT}` : cleanT;
@@ -678,7 +765,6 @@ async function searchYouTubeVideo(token, title, artist) {
         console.warn('Error en búsqueda de YouTube:', e);
     }
 
-    // Fallback general sin categoría si la de música no encontró resultado
     try {
         const fallbackUrl = `/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(query + ' audio')}`;
         const res2 = await youtubeApi(token, fallbackUrl);
@@ -689,17 +775,142 @@ async function searchYouTubeVideo(token, title, artist) {
     }
 }
 
-// ==========================================
-// 5. Algoritmo de Normalización y Limpieza de Títulos
-// ==========================================
+// Deezer Helpers
+async function loadDeezerProfile(token) {
+    const data = await deezerApi(token, '/user/me');
+    return {
+        id: data.id,
+        name: data.name,
+        email: data.email || '',
+        picture: data.picture_medium || data.picture
+    };
+}
 
-// Limpia sufijos ruidosos de videos de YouTube para búsqueda exacta en Spotify
+async function loadDeezerPlaylists(token) {
+    let playlists = [];
+    let url = '/user/me/playlists?limit=50';
+
+    while (url) {
+        const data = await deezerApi(token, url);
+        if (data && data.data) {
+            playlists = playlists.concat(data.data);
+            url = data.next ? data.next.replace('https://api.deezer.com', '') : null;
+        } else {
+            break;
+        }
+    }
+    return playlists;
+}
+
+async function fetchDeezerPlaylistTracks(token, playlistId) {
+    let tracks = [];
+    let url = `/playlist/${playlistId}/tracks?limit=100`;
+
+    while (url) {
+        const data = await deezerApi(token, url);
+        if (data && data.data) {
+            data.data.forEach(t => {
+                tracks.push({
+                    id: t.id,
+                    name: t.title,
+                    artist: t.artist?.name || '',
+                    duration: t.duration,
+                    isrc: t.isrc || ''
+                });
+            });
+            url = data.next ? data.next.replace('https://api.deezer.com', '') : null;
+        } else {
+            break;
+        }
+    }
+    return tracks;
+}
+
+async function fetchDeezerFavoriteTracks(token) {
+    let tracks = [];
+    let url = `/user/me/tracks?limit=100`;
+
+    while (url) {
+        const data = await deezerApi(token, url);
+        if (data && data.data) {
+            data.data.forEach(t => {
+                tracks.push({
+                    id: t.id,
+                    name: t.title,
+                    artist: t.artist?.name || '',
+                    duration: t.duration
+                });
+            });
+            url = data.next ? data.next.replace('https://api.deezer.com', '') : null;
+        } else {
+            break;
+        }
+    }
+    return tracks;
+}
+
+async function createDeezerPlaylist(token, title) {
+    const endpoint = `/user/me/playlists?access_token=${encodeURIComponent(token)}`;
+    const proxyUrl = `/api/deezer/proxy?path=${encodeURIComponent(endpoint)}`;
+
+    const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `title=${encodeURIComponent(title)}`
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'Error al crear lista en Deezer');
+    return data; // { id: 12345 }
+}
+
+async function addTracksToDeezerPlaylist(token, playlistId, trackIds) {
+    if (!trackIds || trackIds.length === 0) return;
+    const endpoint = `/playlist/${playlistId}/tracks?access_token=${encodeURIComponent(token)}`;
+    const proxyUrl = `/api/deezer/proxy?path=${encodeURIComponent(endpoint)}`;
+
+    const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `songs=${encodeURIComponent(trackIds.join(','))}`
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'Error al añadir canciones en Deezer');
+    return data;
+}
+
+async function searchDeezerTrack(token, title, artist) {
+    const cleanT = cleanTitleForSearch(title);
+    const cleanA = cleanTitleForSearch(artist);
+
+    if (cleanT && cleanA) {
+        try {
+            const q = encodeURIComponent(`track:"${cleanT}" artist:"${cleanA}"`);
+            const data = await deezerApi(token, `/search?limit=1&q=${q}`);
+            if (data?.data?.[0]?.id) return data.data[0].id;
+        } catch (e) {}
+    }
+
+    try {
+        const freeQ = encodeURIComponent(`${cleanT} ${cleanA}`.trim());
+        const data2 = await deezerApi(token, `/search?limit=1&q=${freeQ}`);
+        if (data2?.data?.[0]?.id) return data2.data[0].id;
+    } catch (e) {}
+
+    try {
+        const data3 = await deezerApi(token, `/search?limit=1&q=${encodeURIComponent(cleanT)}`);
+        return data3?.data?.[0]?.id || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// ==========================================
+// 4. Normalización y Limpieza de Títulos
+// ==========================================
 function cleanYouTubeTitle(rawTitle) {
     if (!rawTitle) return { title: '', artist: '' };
 
     let str = rawTitle;
-
-    // Eliminar etiquetas tipo [Official Video], (Audio Oficial), etc.
     str = str.replace(/\[(official|video|audio|lyrics?|hd|4k|remastered|visualizer|clip|letra).*?\]/gi, '');
     str = str.replace(/\((official|video|audio|lyrics?|hd|4k|remastered|visualizer|clip|letra|version|en vivo).*?\)/gi, '');
     str = str.replace(/\|\s*official\s*(music\s*)?video/gi, '');
@@ -707,7 +918,6 @@ function cleanYouTubeTitle(rawTitle) {
     str = str.replace(/feat\.\s*[^()\[\]-]+/gi, '');
     str = str.replace(/\s+/g, ' ').trim();
 
-    // Intentar separar "Artista - Título" si existe guión o guión largo
     const dashMatch = str.match(/^(.*?)\s*[-–—:]\s*(.*)$/);
     if (dashMatch) {
         return {
@@ -715,7 +925,6 @@ function cleanYouTubeTitle(rawTitle) {
             title: dashMatch[2].trim()
         };
     }
-
     return { title: str, artist: '' };
 }
 
@@ -727,13 +936,11 @@ function cleanTitleForSearch(title) {
         .trim();
 }
 
-// Buscar canción en Spotify usando título y artista
 async function searchSpotifyTrack(token, rawTitle, defaultArtist = '') {
     const parsed = cleanYouTubeTitle(rawTitle);
     const title = parsed.title || rawTitle;
     const artist = parsed.artist || defaultArtist;
 
-    // 1. Intento estricto con campos track y artist entrecomillados para exactitud
     if (artist && title) {
         try {
             const cleanT = cleanTitleForSearch(title);
@@ -744,14 +951,12 @@ async function searchSpotifyTrack(token, rawTitle, defaultArtist = '') {
         } catch (e) {}
     }
 
-    // 2. Intento de texto libre con artista y título
     try {
         const freeQuery = encodeURIComponent(`${title} ${artist}`.trim());
         const res2 = await spotifyApi(token, `/search?type=track&limit=1&q=${freeQuery}`);
         if (res2?.tracks?.items?.[0]?.uri) return res2.tracks.items[0].uri;
     } catch (e) {}
 
-    // 3. Intento únicamente con título limpio
     try {
         const cleanT = cleanTitleForSearch(title);
         const res3 = await spotifyApi(token, `/search?type=track&limit=1&q=${encodeURIComponent(cleanT)}`);
@@ -762,7 +967,7 @@ async function searchSpotifyTrack(token, rawTitle, defaultArtist = '') {
 }
 
 // ==========================================
-// 6. Navigation & Stepper
+// 5. Navigation & UI Adapters
 // ==========================================
 function setStep(stepNumber) {
     state.step = stepNumber;
@@ -801,43 +1006,62 @@ function setStep(stepNumber) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// Adaptación dinámica de UI según el modo seleccionado
 function updateModeUI() {
     const srcPlat = getSourcePlatform();
     const dstPlat = getDestPlatform();
 
-    // Actualizar tarjetas de selección de ruta
-    document.querySelectorAll('#transfer-mode-selector .route-card').forEach(card => {
-        const mode = card.getAttribute('data-mode');
-        const check = card.querySelector('.route-check');
-        if (mode === state.transferMode) {
-            card.className = 'route-card p-4 rounded-xl border-2 border-spotify-green bg-spotify-dark/80 text-left transition flex items-center justify-between';
-            if (check) check.classList.remove('hidden');
+    // Actualizar botones de origen
+    document.querySelectorAll('#source-platform-selector .plat-src-btn').forEach(btn => {
+        const plat = btn.getAttribute('data-platform');
+        if (plat === srcPlat) {
+            const borderCol = plat === 'youtube' ? 'border-red-500 bg-red-500/10' : (plat === 'deezer' ? 'border-purple-500 bg-purple-500/10' : 'border-spotify-green bg-spotify-green/10');
+            btn.className = `plat-src-btn p-3 rounded-xl border-2 ${borderCol} text-center transition flex flex-col items-center justify-center gap-1.5 shadow-md`;
         } else {
-            card.className = 'route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100';
-            if (check) check.classList.add('hidden');
+            btn.className = `plat-src-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-gray-500`;
         }
     });
 
-    // Mostrar/ocultar inputs y guías según las plataformas requeridas
-    const needsSpotify = srcPlat === 'spotify' || dstPlat === 'spotify';
+    // Actualizar botones de destino
+    document.querySelectorAll('#dest-platform-selector .plat-dst-btn').forEach(btn => {
+        const plat = btn.getAttribute('data-platform');
+        if (plat === dstPlat) {
+            const borderCol = plat === 'youtube' ? 'border-red-500 bg-red-500/10' : (plat === 'deezer' ? 'border-purple-500 bg-purple-500/10' : 'border-spotify-green bg-spotify-green/10');
+            btn.className = `plat-dst-btn p-3 rounded-xl border-2 ${borderCol} text-center transition flex flex-col items-center justify-center gap-1.5 shadow-md`;
+        } else {
+            btn.className = `plat-dst-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-gray-500`;
+        }
+    });
+
+    // Badge de ruta activa
+    const routeBadge = document.getElementById('active-route-badge');
+    if (routeBadge) {
+        routeBadge.innerHTML = `${getPlatformIcon(srcPlat)} ${getPlatformName(srcPlat)} ➔ ${getPlatformIcon(dstPlat)} ${getPlatformName(dstPlat)}`;
+    }
+
+    // Mostrar/ocultar inputs y guías según plataformas requeridas
+    const needsSpot = srcPlat === 'spotify' || dstPlat === 'spotify';
     const needsGoogle = srcPlat === 'youtube' || dstPlat === 'youtube';
+    const needsDeezer = srcPlat === 'deezer' || dstPlat === 'deezer';
 
-    const fieldSpotify = document.getElementById('field-spotify-client-id');
+    const fieldSpot = document.getElementById('field-spotify-client-id');
     const fieldGoogle = document.getElementById('field-google-client-id');
-    const guideSpotify = document.getElementById('guide-spotify');
-    const guideYoutube = document.getElementById('guide-youtube');
+    const fieldDeezer = document.getElementById('field-deezer-credentials');
+    const guideSpot = document.getElementById('guide-spotify');
+    const guideGoogle = document.getElementById('guide-youtube');
+    const guideDeezer = document.getElementById('guide-deezer');
 
-    if (fieldSpotify) fieldSpotify.style.display = needsSpotify ? 'block' : 'none';
+    if (fieldSpot) fieldSpot.style.display = needsSpot ? 'block' : 'none';
     if (fieldGoogle) fieldGoogle.style.display = needsGoogle ? 'block' : 'none';
-    if (guideSpotify) guideSpotify.style.display = needsSpotify ? 'block' : 'none';
-    if (guideYoutube) guideYoutube.style.display = needsGoogle ? 'block' : 'none';
+    if (fieldDeezer) fieldDeezer.style.display = needsDeezer ? 'block' : 'none';
+    if (guideSpot) guideSpot.style.display = needsSpot ? 'block' : 'none';
+    if (guideGoogle) guideGoogle.style.display = needsGoogle ? 'block' : 'none';
+    if (guideDeezer) guideDeezer.style.display = needsDeezer ? 'block' : 'none';
 
     // Etiquetas del Stepper
     const stepLabel2 = document.getElementById('step-label-2');
     const stepLabel3 = document.getElementById('step-label-3');
-    if (stepLabel2) stepLabel2.textContent = srcPlat === 'youtube' ? 'Origen (YouTube)' : 'Origen (Spotify)';
-    if (stepLabel3) stepLabel3.textContent = dstPlat === 'youtube' ? 'Destino (YouTube)' : 'Destino (Spotify)';
+    if (stepLabel2) stepLabel2.textContent = `Origen (${getPlatformName(srcPlat)})`;
+    if (stepLabel3) stepLabel3.textContent = `Destino (${getPlatformName(dstPlat)})`;
 }
 
 function updateStep2UI() {
@@ -847,7 +1071,16 @@ function updateStep2UI() {
     const profile = getSourceProfile();
     const token = getSourceToken();
 
-    if (srcPlat === 'youtube') {
+    if (srcPlat === 'deezer') {
+        if (badge) {
+            badge.textContent = 'Cuenta de Origen: Deezer';
+            badge.className = 'text-xs uppercase tracking-wider text-purple-400 font-semibold';
+        }
+        if (btnLogin) {
+            btnLogin.className = 'bg-purple-600 hover:bg-purple-500 text-white font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-purple-600/20';
+            btnLogin.textContent = token ? 'Cambiar cuenta de Deezer' : 'Conectar Cuenta de Deezer';
+        }
+    } else if (srcPlat === 'youtube') {
         if (badge) {
             badge.textContent = 'Cuenta de Origen: YouTube Music';
             badge.className = 'text-xs uppercase tracking-wider text-red-500 font-semibold';
@@ -885,7 +1118,17 @@ function updateStep3UI() {
     const profile = getDestProfile();
     const token = getDestToken();
 
-    if (dstPlat === 'youtube') {
+    if (dstPlat === 'deezer') {
+        if (badge) {
+            badge.textContent = 'Cuenta de Destino: Deezer';
+            badge.className = 'text-xs uppercase tracking-wider text-purple-400 font-semibold';
+        }
+        if (btnLogin) {
+            btnLogin.className = 'bg-purple-600 hover:bg-purple-500 text-white font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-purple-600/20';
+            btnLogin.textContent = token ? 'Cambiar cuenta Deezer destino' : 'Conectar Deezer Destino';
+        }
+        if (heartBox) heartBox.style.display = 'none';
+    } else if (dstPlat === 'youtube') {
         if (badge) {
             badge.textContent = 'Cuenta de Destino: YouTube Music';
             badge.className = 'text-xs uppercase tracking-wider text-red-500 font-semibold';
@@ -918,7 +1161,7 @@ function updateStep3UI() {
 }
 
 // ==========================================
-// 7. Step 1: Configuration Logic
+// 6. Step 1: Configuration Logic
 // ==========================================
 document.getElementById('redirect-uri-display').textContent = state.redirectUri;
 
@@ -930,26 +1173,29 @@ document.getElementById('btn-copy-uri').addEventListener('click', () => {
     setTimeout(() => { btn.textContent = oldText; }, 2000);
 });
 
-// Selector de ruta
-document.querySelectorAll('#transfer-mode-selector .route-card').forEach(btn => {
+// Selectores dinámicos de plataforma
+document.querySelectorAll('#source-platform-selector .plat-src-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        const mode = btn.getAttribute('data-mode');
-        state.transferMode = mode;
-        localStorage.setItem('transfer_mode', mode);
+        state.sourcePlatform = btn.getAttribute('data-platform');
+        localStorage.setItem('source_platform', state.sourcePlatform);
         updateModeUI();
     });
 });
 
-if (state.clientId) {
-    document.getElementById('input-client-id').value = state.clientId;
-}
-if (state.googleClientId) {
-    document.getElementById('input-google-client-id').value = state.googleClientId;
-}
-if (state.googleClientSecret) {
-    const secInput = document.getElementById('input-google-client-secret');
-    if (secInput) secInput.value = state.googleClientSecret;
-}
+document.querySelectorAll('#dest-platform-selector .plat-dst-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        state.destPlatform = btn.getAttribute('data-platform');
+        localStorage.setItem('dest_platform', state.destPlatform);
+        updateModeUI();
+    });
+});
+
+// Precarga de valores
+if (state.clientId) document.getElementById('input-client-id').value = state.clientId;
+if (state.googleClientId) document.getElementById('input-google-client-id').value = state.googleClientId;
+if (state.googleClientSecret) document.getElementById('input-google-client-secret').value = state.googleClientSecret;
+if (state.deezerAppId) document.getElementById('input-deezer-app-id').value = state.deezerAppId;
+if (state.deezerSecret) document.getElementById('input-deezer-secret').value = state.deezerSecret;
 updateModeUI();
 
 document.getElementById('form-config').addEventListener('submit', (e) => {
@@ -960,6 +1206,8 @@ document.getElementById('form-config').addEventListener('submit', (e) => {
     const spotId = document.getElementById('input-client-id').value.trim();
     const googleId = document.getElementById('input-google-client-id').value.trim();
     const googleSec = document.getElementById('input-google-client-secret')?.value.trim() || '';
+    const deezerId = document.getElementById('input-deezer-app-id')?.value.trim() || '';
+    const deezerSec = document.getElementById('input-deezer-secret')?.value.trim() || '';
 
     if ((srcPlat === 'spotify' || dstPlat === 'spotify') && !spotId) {
         alert('Por favor ingresa tu Spotify Client ID.');
@@ -967,6 +1215,10 @@ document.getElementById('form-config').addEventListener('submit', (e) => {
     }
     if ((srcPlat === 'youtube' || dstPlat === 'youtube') && !googleId) {
         alert('Por favor ingresa tu Google / YouTube Client ID.');
+        return;
+    }
+    if ((srcPlat === 'deezer' || dstPlat === 'deezer') && (!deezerId || !deezerSec)) {
+        alert('Por favor ingresa tu Deezer App ID y Secret Key.');
         return;
     }
 
@@ -981,16 +1233,21 @@ document.getElementById('form-config').addEventListener('submit', (e) => {
     if (googleSec) {
         state.googleClientSecret = googleSec;
         localStorage.setItem('google_client_secret', googleSec);
-    } else {
-        state.googleClientSecret = '';
-        localStorage.removeItem('google_client_secret');
+    }
+    if (deezerId) {
+        state.deezerAppId = deezerId;
+        localStorage.setItem('deezer_app_id', deezerId);
+    }
+    if (deezerSec) {
+        state.deezerSecret = deezerSec;
+        localStorage.setItem('deezer_secret', deezerSec);
     }
 
     setStep(2);
 });
 
 // ==========================================
-// 8. Step 2: Source Account Logic
+// 7. Step 2: Source Account Logic
 // ==========================================
 document.getElementById('btn-login-source').addEventListener('click', () => {
     const banner403 = document.getElementById('source-403-banner');
@@ -1007,7 +1264,39 @@ async function loadSourceProfileAndPlaylists() {
     sourceBtn.innerHTML = `⏳ Cargando datos...`;
 
     try {
-        if (srcPlat === 'youtube') {
+        if (srcPlat === 'deezer') {
+            // Deezer Flow
+            const profile = await loadDeezerProfile(token);
+            state.deezerSourceProfile = profile;
+            sessionStorage.setItem('deezer_source_profile', JSON.stringify(profile));
+
+            document.getElementById('source-name').textContent = profile.name || `ID: ${profile.id}`;
+            document.getElementById('source-email').textContent = profile.email || `ID: ${profile.id}`;
+            if (profile.picture) {
+                document.getElementById('source-avatar').innerHTML = `<img src="${escapeHtml(profile.picture)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+            }
+            sourceBtn.innerHTML = 'Cambiar cuenta Deezer origen';
+            document.getElementById('source-content').classList.remove('hidden');
+
+            const dzPlaylists = await loadDeezerPlaylists(token);
+            state.playlists = [];
+
+            dzPlaylists.forEach(pl => {
+                state.playlists.push({
+                    id: pl.id,
+                    name: pl.title || 'Sin título',
+                    description: pl.description || '',
+                    tracksCount: pl.nb_tracks || 0,
+                    imageUrl: pl.picture_medium || pl.picture || '',
+                    platform: 'deezer',
+                    isLikedSongs: false,
+                    isOwned: pl.creator?.id === profile.id,
+                    selected: true,
+                    tracks: []
+                });
+            });
+
+        } else if (srcPlat === 'youtube') {
             // YouTube Flow
             const profile = await loadGoogleProfile(token);
             state.ytSourceProfile = profile;
@@ -1049,7 +1338,6 @@ async function loadSourceProfileAndPlaylists() {
             sourceBtn.innerHTML = 'Cambiar cuenta Spotify origen';
             document.getElementById('source-content').classList.remove('hidden');
 
-            // Liked songs count
             let likedCount = 0;
             try {
                 const likedRes = await spotifyApi(token, '/me/tracks?limit=1');
@@ -1059,7 +1347,6 @@ async function loadSourceProfileAndPlaylists() {
             }
             state.likedSongsTotal = likedCount;
 
-            // Fetch playlists
             let playlists = [];
             let url = '/me/playlists?limit=50';
             while (url) {
@@ -1111,20 +1398,16 @@ async function loadSourceProfileAndPlaylists() {
         renderPlaylists();
     } catch (err) {
         console.error('Error cargando origen:', err);
-        sourceBtn.innerHTML = srcPlat === 'youtube' ? 'Conectar YouTube Origen' : 'Conectar Spotify Origen';
+        sourceBtn.innerHTML = `Conectar ${getPlatformName(srcPlat)} Origen`;
 
-        if (isForbidden(err)) {
+        if (isForbidden(err) && srcPlat === 'spotify') {
             const banner403 = document.getElementById('source-403-banner');
-            if (banner403 && srcPlat === 'spotify') {
+            if (banner403) {
                 banner403.classList.remove('hidden');
                 banner403.scrollIntoView({ behavior: 'smooth' });
-            } else {
-                alert('Error 403: Verifica los permisos o cuota de API de tu cuenta.');
             }
-        } else if (err.message && (err.message.includes('401') || err.message.includes('expired'))) {
-            alert('Tu sesión expiró. Por favor vuelve a hacer clic en Conectar.');
         } else {
-            alert('Error al conectar con la cuenta de origen: ' + err.message);
+            alert(`Error al conectar con la cuenta de origen: ${err.message}`);
         }
     }
 }
@@ -1198,7 +1481,7 @@ function updateSelectionCounter() {
     document.getElementById('selection-counter').textContent = `${selected.length} seleccionadas (${totalTracks} canciones)`;
 }
 
-// Select/Deselect All buttons
+// Select/Deselect All
 document.getElementById('btn-select-all').addEventListener('click', () => {
     state.playlists.forEach(p => p.selected = true);
     savePlaylists();
@@ -1234,7 +1517,9 @@ document.getElementById('btn-export-json').addEventListener('click', async () =>
     for (const pl of selected) {
         let tracks = [];
         try {
-            if (srcPlat === 'youtube') {
+            if (srcPlat === 'deezer') {
+                tracks = await fetchDeezerPlaylistTracks(token, pl.id);
+            } else if (srcPlat === 'youtube') {
                 tracks = await fetchYouTubePlaylistTracks(token, pl.id);
             } else if (pl.isLikedSongs) {
                 tracks = await fetchLikedSongsTracks(token);
@@ -1316,7 +1601,7 @@ document.getElementById('btn-go-to-dest').addEventListener('click', () => {
 });
 
 // ==========================================
-// 9. Step 3: Destination Account Logic
+// 8. Step 3: Destination Account Logic
 // ==========================================
 document.getElementById('btn-login-dest').addEventListener('click', () => {
     const dest403 = document.getElementById('dest-403-banner');
@@ -1335,7 +1620,19 @@ async function checkDestinationProfile() {
     if (!token) return;
 
     try {
-        if (dstPlat === 'youtube') {
+        if (dstPlat === 'deezer') {
+            const profile = await loadDeezerProfile(token);
+            state.deezerDestProfile = profile;
+            sessionStorage.setItem('deezer_dest_profile', JSON.stringify(profile));
+
+            document.getElementById('dest-name').textContent = profile.name || `ID: ${profile.id}`;
+            document.getElementById('dest-email').textContent = profile.email || `ID: ${profile.id}`;
+            if (profile.picture) {
+                document.getElementById('dest-avatar').innerHTML = `<img src="${escapeHtml(profile.picture)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+            }
+            document.getElementById('btn-login-dest').textContent = 'Cambiar cuenta Deezer destino';
+
+        } else if (dstPlat === 'youtube') {
             const profile = await loadGoogleProfile(token);
             state.ytDestProfile = profile;
             sessionStorage.setItem('yt_dest_profile', JSON.stringify(profile));
@@ -1346,6 +1643,7 @@ async function checkDestinationProfile() {
                 document.getElementById('dest-avatar').innerHTML = `<img src="${escapeHtml(profile.picture)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
             }
             document.getElementById('btn-login-dest').textContent = 'Cambiar cuenta YouTube destino';
+
         } else {
             const profile = await spotifyApi(token, '/me');
             state.destProfile = profile;
@@ -1359,7 +1657,6 @@ async function checkDestinationProfile() {
             document.getElementById('btn-login-dest').textContent = 'Cambiar cuenta Spotify destino';
         }
 
-        // Advertencia si es exactamente la misma cuenta en la misma plataforma
         const warning = document.getElementById('warning-same-account');
         const srcProfile = getSourceProfile();
         const dstProfile = getDestProfile();
@@ -1376,7 +1673,10 @@ async function checkDestinationProfile() {
         updateDestinationSummary();
     } catch (err) {
         console.error('Error cargando destino:', err);
-        if (dstPlat === 'youtube') {
+        if (dstPlat === 'deezer') {
+            state.deezerDestToken = '';
+            sessionStorage.removeItem('deezer_dest_token');
+        } else if (dstPlat === 'youtube') {
             state.ytDestToken = '';
             sessionStorage.removeItem('yt_dest_token');
         } else {
@@ -1389,7 +1689,7 @@ async function checkDestinationProfile() {
             if (banner403) banner403.classList.remove('hidden');
             alert('⚠️ Error 403: Tu cuenta de DESTINO no está registrada en "Users and Access" de tu Spotify Developer Dashboard.');
         } else {
-            alert('Error al verificar cuenta de destino: ' + err.message);
+            alert(`Error al verificar cuenta de destino: ${err.message}`);
         }
     }
 }
@@ -1404,7 +1704,7 @@ document.getElementById('btn-start-transfer').addEventListener('click', () => {
 
     const selectedPlaylists = state.playlists.filter(p => p.selected);
     if (selectedPlaylists.length === 0) {
-        alert('No tienes ninguna playlist seleccionada para transferir. Vuelve al Paso 2 y selecciona tus listas.');
+        alert('No tienes ninguna playlist seleccionada para transferir. Vuelve al Paso 2.');
         setStep(2);
         return;
     }
@@ -1412,7 +1712,7 @@ document.getElementById('btn-start-transfer').addEventListener('click', () => {
     const srcProfile = getSourceProfile();
     const dstProfile = getDestProfile();
     if (getSourcePlatform() === getDestPlatform() && srcProfile && dstProfile && srcProfile.id === dstProfile.id) {
-        if (!confirm('⚠️ Advertencia: Ambas cuentas tienen el mismo ID. ¿Estás seguro de que deseas duplicar las listas en la misma cuenta?')) {
+        if (!confirm('⚠️ Advertencia: Ambas cuentas tienen el mismo ID. ¿Deseas duplicar las listas en la misma cuenta?')) {
             return;
         }
     }
@@ -1421,7 +1721,7 @@ document.getElementById('btn-start-transfer').addEventListener('click', () => {
 });
 
 // ==========================================
-// 10. Step 4 & 5: Transfer Engine (Bidirectional)
+// 9. Step 4 & 5: Universal Transfer Engine
 // ==========================================
 function logMessage(msg) {
     const consoleBox = document.getElementById('live-console');
@@ -1580,23 +1880,7 @@ async function saveLikedTracksToLibrary(token, trackUris) {
     return saved;
 }
 
-// Save/follow Spotify playlist
-async function savePlaylistToDestinationLibrary(token, playlistId) {
-    try {
-        await spotifyApi(token, `/playlists/${encodeURIComponent(playlistId)}/followers`, {
-            method: 'PUT',
-            body: JSON.stringify({ public: false })
-        });
-        return true;
-    } catch (e) {
-        await spotifyApi(token, `/me/library?uris=spotify:playlist:${encodeURIComponent(playlistId)}`, {
-            method: 'PUT'
-        });
-        return true;
-    }
-}
-
-// Motor de transferencia Bidireccional
+// Universal Transfer Engine Execution
 async function executeTransfer() {
     setStep(4);
     state.isTransferring = true;
@@ -1625,10 +1909,10 @@ async function executeTransfer() {
     statTracks.textContent = '0';
     statStatus.textContent = 'Iniciando...';
 
-    const routeLabel = `${srcPlat.toUpperCase()} ➔ ${dstPlat.toUpperCase()}`;
+    const routeLabel = `${getPlatformIcon(srcPlat)} ${getPlatformName(srcPlat).toUpperCase()} ➔ ${getPlatformIcon(dstPlat)} ${getPlatformName(dstPlat).toUpperCase()}`;
     logMessage(`🚀 Comenzando transferencia [${routeLabel}] de ${selectedPlaylists.length} listas...`);
 
-    // Perfil destino
+    // Perfil destino Spotify si aplica
     let destUserId = '';
     if (dstPlat === 'spotify') {
         if (!state.destProfile || !state.destProfile.id) {
@@ -1649,28 +1933,86 @@ async function executeTransfer() {
             statStatus.textContent = `Procesando: ${pl.name}`;
             logMessage(`📂 [${i + 1}/${selectedPlaylists.length}] Procesando lista: <strong>${escapeHtml(pl.name)}</strong>...`);
 
-            // PASO A: Obtener pistas desde el origen
+            // ==========================================
+            // PASO A: Obtener canciones de la plataforma origen
+            // ==========================================
             let tracks = [];
             if (Array.isArray(pl.tracks) && pl.tracks.length > 0) {
                 logMessage(`  └ Usando ${pl.tracks.length} canciones cargadas del respaldo JSON.`);
                 tracks = pl.tracks;
+            } else if (srcPlat === 'deezer') {
+                if (pl.isLikedSongs) {
+                    tracks = await fetchDeezerFavoriteTracks(srcToken);
+                    logMessage(`  ✔ Obtenidas ${tracks.length} canciones favoritas de Deezer.`);
+                } else {
+                    tracks = await fetchDeezerPlaylistTracks(srcToken, pl.id);
+                    logMessage(`  ✔ Obtenidas ${tracks.length} canciones de Deezer.`);
+                }
             } else if (srcPlat === 'youtube') {
                 tracks = await fetchYouTubePlaylistTracks(srcToken, pl.id);
                 logMessage(`  ✔ Obtenidos ${tracks.length} videos de YouTube.`);
             } else {
-                // Origen es Spotify
+                // Spotify
                 if (pl.isLikedSongs) {
                     tracks = await fetchLikedSongsTracks(srcToken);
                     logMessage(`  ✔ Obtenidas ${tracks.length} canciones de Tus Me Gusta.`);
                 } else {
                     tracks = await fetchPlaylistTracks(srcToken, pl.id);
-                    logMessage(`  ✔ Obtenidas ${tracks.length} canciones.`);
+                    logMessage(`  ✔ Obtenidas ${tracks.length} canciones de Spotify.`);
                 }
             }
 
-            // PASO B: Destino YouTube Music
-            if (dstPlat === 'youtube') {
-                const createPlName = pl.isLikedSongs ? 'Mis Me Gusta (Spotify)' : pl.name;
+            // ==========================================
+            // PASO B: Destino DEEZER
+            // ==========================================
+            if (dstPlat === 'deezer') {
+                const createPlName = pl.isLikedSongs ? 'Mis Me Gusta (Migrados)' : pl.name;
+                logMessage(`  🛠 Creando playlist en Deezer: <strong>${escapeHtml(createPlName)}</strong>...`);
+
+                const newDzPl = await createDeezerPlaylist(dstToken, createPlName);
+                const dzPlaylistId = newDzPl.id;
+                const matchedTrackIds = [];
+
+                for (let t = 0; t < tracks.length; t++) {
+                    const track = tracks[t];
+                    let deezerId = track.id && srcPlat === 'deezer' ? track.id : null;
+
+                    if (!deezerId) {
+                        currentTask.textContent = `Buscando en Deezer: ${track.name} - ${track.artist}`;
+                        deezerId = await searchDeezerTrack(dstToken, track.name, track.artist);
+                    }
+
+                    if (deezerId) {
+                        matchedTrackIds.push(deezerId);
+                    } else {
+                        logMessage(`  ⚠️ Sin coincidencia en Deezer: ${escapeHtml(track.name)} - ${escapeHtml(track.artist || '')}`);
+                    }
+                    await sleep(60);
+                }
+
+                // Añadir canciones en lotes de 50
+                let addedCount = 0;
+                for (let b = 0; b < matchedTrackIds.length; b += 50) {
+                    const batch = matchedTrackIds.slice(b, b + 50);
+                    await addTracksToDeezerPlaylist(dstToken, dzPlaylistId, batch);
+                    addedCount += batch.length;
+                    totalTracksTransferred += batch.length;
+                    statTracks.textContent = totalTracksTransferred;
+                    logMessage(`  └ Canciones añadidas a Deezer: ${addedCount} / ${matchedTrackIds.length}`);
+                    await sleep(150);
+                }
+
+                finalCreatedList.push({
+                    name: createPlName,
+                    url: `https://www.deezer.com/playlist/${dzPlaylistId}`,
+                    tracksCount: addedCount
+                });
+
+            // ==========================================
+            // PASO C: Destino YOUTUBE MUSIC
+            // ==========================================
+            } else if (dstPlat === 'youtube') {
+                const createPlName = pl.isLikedSongs ? 'Mis Me Gusta (Migrados)' : pl.name;
                 logMessage(`  🛠 Creando playlist en YouTube Music: <strong>${escapeHtml(createPlName)}</strong>...`);
 
                 const newYtPl = await createYouTubePlaylist(
@@ -1687,7 +2029,6 @@ async function executeTransfer() {
                     const track = tracks[t];
                     let videoId = track.videoId;
 
-                    // Si venimos de Spotify o JSON sin videoId, buscar el video en YouTube
                     if (!videoId) {
                         currentTask.textContent = `Buscando en YouTube: ${track.name} - ${track.artist}`;
                         videoId = await searchYouTubeVideo(dstToken, track.name, track.artist);
@@ -1705,25 +2046,27 @@ async function executeTransfer() {
                     } else {
                         logMessage(`  ⚠️ No se encontró video en YouTube para: ${escapeHtml(track.name)} - ${escapeHtml(track.artist || '')}`);
                     }
-
-                    // Pausa ligera para evitar exceder rate limit
-                    await sleep(100);
+                    await sleep(90);
                 }
 
-                logMessage(`  ✅ Añadidos ${addedCount} / ${tracks.length} videos a la playlist de YouTube.`);
+                logMessage(`  ✅ Añadidos ${addedCount} / ${tracks.length} videos a YouTube Music.`);
                 finalCreatedList.push({
                     name: createPlName,
                     url: `https://music.youtube.com/playlist?list=${ytPlaylistId}`,
                     tracksCount: addedCount
                 });
 
+            // ==========================================
+            // PASO D: Destino SPOTIFY
+            // ==========================================
             } else {
-                // PASO C: Destino Spotify
                 let trackUris = [];
 
-                if (srcPlat === 'youtube') {
-                    // Mapear videos de YouTube a tracks de Spotify con limpieza de títulos
-                    logMessage(`  🔍 Emparejando canciones de YouTube con el catálogo de Spotify...`);
+                if (srcPlat === 'spotify') {
+                    trackUris = tracks.map(t => t.uri).filter(uri => uri && uri.startsWith('spotify:track:'));
+                } else {
+                    // Mapear desde Deezer o YouTube a catálogo Spotify
+                    logMessage(`  🔍 Emparejando canciones con el catálogo de Spotify...`);
                     for (let t = 0; t < tracks.length; t++) {
                         const tr = tracks[t];
                         currentTask.textContent = `Buscando en Spotify: ${tr.name}`;
@@ -1733,15 +2076,11 @@ async function executeTransfer() {
                         } else {
                             logMessage(`  ⚠️ Sin coincidencia en Spotify: ${escapeHtml(tr.name)}`);
                         }
-                        await sleep(80);
+                        await sleep(70);
                     }
                     logMessage(`  ✔ Emparejadas ${trackUris.length} / ${tracks.length} canciones.`);
-                } else {
-                    // Origen Spotify directo
-                    trackUris = tracks.map(t => t.uri).filter(uri => uri && uri.startsWith('spotify:track:'));
                 }
 
-                // Guardar Me Gusta con corazón si corresponde
                 if (pl.isLikedSongs && heartLikedSongs && trackUris.length > 0) {
                     currentTask.textContent = `Guardando en tus "Me Gusta"...`;
                     logMessage(`  ❤️ Añadiendo a tus "Canciones que te gustan" con corazón...`);
@@ -1753,7 +2092,6 @@ async function executeTransfer() {
                     }
                 }
 
-                // Crear playlist en Spotify
                 const createPlName = pl.isLikedSongs ? 'Mis Me Gusta (Transferidos)' : pl.name;
                 logMessage(`  🛠 Creando playlist <strong>${escapeHtml(createPlName)}</strong> en Spotify destino...`);
 
@@ -1772,7 +2110,6 @@ async function executeTransfer() {
                     tracksCount: trackUris.length
                 });
 
-                // Añadir canciones en lotes de 100
                 if (trackUris.length > 0) {
                     for (let b = 0; b < trackUris.length; b += 100) {
                         const batch = trackUris.slice(b, b + 100);
@@ -1828,13 +2165,13 @@ async function executeTransfer() {
             const row = document.createElement('div');
             row.className = 'flex items-center justify-between p-2 rounded-lg bg-spotify-dark/60 border border-spotify-border/60 hover:border-spotify-green transition';
 
-            const safeUrl = (typeof item.url === 'string' && (item.url.startsWith('https://open.spotify.com/') || item.url.startsWith('https://music.youtube.com/') || item.url.startsWith('https://www.youtube.com/')))
+            const safeUrl = (typeof item.url === 'string' && (item.url.startsWith('https://open.spotify.com/') || item.url.startsWith('https://music.youtube.com/') || item.url.startsWith('https://www.youtube.com/') || item.url.startsWith('https://www.deezer.com/')))
                 ? item.url
                 : '#';
 
             row.innerHTML = `
                 <span class="font-medium text-white truncate mr-2">🎵 ${escapeHtml(item.name)} <span class="text-gray-500">(${Number(item.tracksCount) || 0} canciones)</span></span>
-                <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-spotify-green hover:underline flex-shrink-0 flex items-center gap-1">
+                <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-spotify-green hover:underline flex-shrink-0 flex items-center gap-1 font-semibold">
                     Abrir ↗
                 </a>
             `;
@@ -1868,12 +2205,12 @@ document.getElementById('btn-reset-app').addEventListener('click', () => {
 });
 
 // ==========================================
-// 11. Init & OAuth Callback Handling
+// 10. Init & OAuth Callback Handling
 // ==========================================
 async function init() {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
-    const authError = urlParams.get('error');
+    const authError = urlParams.get('error') || urlParams.get('error_reason');
 
     if (authError) {
         alert('Error de autorización: ' + authError);
@@ -1894,14 +2231,34 @@ async function init() {
             return;
         }
 
-        if (!verifier) {
-            alert('No se encontró el código de verificación (PKCE). Por favor vuelve a hacer clic en Conectar.');
-            setStep(mode === 'source' ? 2 : 3);
-            return;
-        }
-
         try {
-            if (platform === 'google') {
+            if (platform === 'deezer') {
+                const tokenData = await exchangeDeezerCode(code);
+                if (tokenData.access_token) {
+                    if (mode === 'source') {
+                        state.deezerSourceToken = tokenData.access_token;
+                        sessionStorage.setItem('deezer_source_token', tokenData.access_token);
+                        setStep(2);
+                        await loadSourceProfileAndPlaylists();
+                        return;
+                    } else {
+                        state.deezerDestToken = tokenData.access_token;
+                        sessionStorage.setItem('deezer_dest_token', tokenData.access_token);
+                        setStep(3);
+                        updateDestinationSummary();
+                        await checkDestinationProfile();
+                        return;
+                    }
+                } else {
+                    throw new Error(tokenData.error?.message || tokenData.error || 'Respuesta no válida de Deezer');
+                }
+
+            } else if (platform === 'google') {
+                if (!verifier) {
+                    alert('No se encontró el código de verificación (PKCE). Por favor vuelve a conectar.');
+                    setStep(mode === 'source' ? 2 : 3);
+                    return;
+                }
                 const tokenData = await exchangeGoogleCode(code, verifier);
                 if (tokenData.access_token) {
                     if (mode === 'source') {
@@ -1929,8 +2286,14 @@ async function init() {
                 } else {
                     throw new Error(tokenData.error_description || tokenData.error || 'Respuesta no válida de Google');
                 }
+
             } else {
                 // Spotify
+                if (!verifier) {
+                    alert('No se encontró el código de verificación (PKCE). Por favor vuelve a conectar.');
+                    setStep(mode === 'source' ? 2 : 3);
+                    return;
+                }
                 const tokenData = await exchangeSpotifyCode(code, verifier);
                 if (tokenData.access_token) {
                     if (mode === 'source') {
@@ -1961,7 +2324,7 @@ async function init() {
             }
         } catch (err) {
             console.error('Error al intercambiar código:', err);
-            alert('Error al autenticar: ' + err.message);
+            alert(`Error al autenticar: ${err.message}`);
         }
     }
 
@@ -1970,8 +2333,9 @@ async function init() {
     const dstPlat = getDestPlatform();
     const needsSpot = srcPlat === 'spotify' || dstPlat === 'spotify';
     const needsGoogle = srcPlat === 'youtube' || dstPlat === 'youtube';
+    const needsDeezer = srcPlat === 'deezer' || dstPlat === 'deezer';
 
-    if ((needsSpot && !state.clientId) || (needsGoogle && !state.googleClientId)) {
+    if ((needsSpot && !state.clientId) || (needsGoogle && !state.googleClientId) || (needsDeezer && !state.deezerAppId)) {
         setStep(1);
     } else if (getDestToken() && state.playlists.length > 0) {
         setStep(3);
