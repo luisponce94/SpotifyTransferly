@@ -1,3 +1,33 @@
+/**
+ * ====================================================================
+ * SpotifyTransferly - Motor de Migración de Playlists entre Cuentas
+ * ====================================================================
+ * ¿CÓMO FUNCIONA LA TRANSFERENCIA EXACTAMENTE?
+ * 
+ * 1. AUTENTICACIÓN PKCE (OAuth 2.0 sin Client Secret):
+ *    - La app genera un `code_verifier` aleatorio de 64 caracteres y obtiene
+ *      su hash SHA-256 (`code_challenge`).
+ *    - Spotify autoriza al usuario y devuelve un código temporal que se intercambia
+ *      vía el proxy local (/api/token) por un `access_token` y `refresh_token`.
+ * 
+ * 2. GESTIÓN DUAL DE CUENTAS (Origen vs Destino):
+ *    - Cuenta Origen: Se obtienen las playlists, me gusta y sus canciones (URIs).
+ *    - Cuenta Destino: Se crea una nueva playlist o se guardan las canciones.
+ *    - Ambos tokens se mantienen aislados en `sessionStorage` para operar en paralelo.
+ * 
+ * 3. MOTOR DE TRANSFERENCIA (Dual-Route):
+ *    - Playlists Propias: Lee las canciones en lotes de 100 de origen, crea la lista
+ *      en destino y añade las canciones por bloques para no saturar la API.
+ *    - Playlists Públicas/Terceros: Se guardan directamente en la biblioteca del destino
+ *      usando followers o el endpoint de biblioteca.
+ *    - Canciones que te gustan (Liked Songs): Se transfieren marcándolas con corazón ❤️
+ *      usando PUT /v1/me/tracks en lotes de 50.
+ *    - Respaldo JSON: Permite exportar/importar listas completas sin necesidad de
+ *      tener acceso simultáneo a la cuenta de origen.
+ *    - Resiliencia: Control de HTTP 429 (Retry-After) y renovación automática ante 401.
+ * ====================================================================
+ */
+
 // SpotTransfer - Client-side App Logic
 
 // Enforce 127.0.0.1 to maintain identical localStorage across redirects
@@ -5,21 +35,33 @@ if (window.location.hostname === 'localhost') {
     window.location.replace(window.location.href.replace('localhost', '127.0.0.1'));
 }
 
-// Estado de la interfaz. localStorage es privado del navegador, no del repositorio.
-// Reiniciar sesión borra estos datos; no exportar el perfil del navegador.
+// Estado de la interfaz. Los tokens sensibles se guardan en sessionStorage (se destruyen al cerrar la pestaña).
 // Global State
+const currentPort = window.location.port ? `:${window.location.port}` : '';
 const state = {
     step: 1,
     clientId: localStorage.getItem('spot_client_id') || '',
-    redirectUri: 'http://127.0.0.1:3000/callback',
-    sourceToken: localStorage.getItem('spot_source_token') || '',
-    sourceProfile: JSON.parse(localStorage.getItem('spot_source_profile') || 'null'),
-    destToken: localStorage.getItem('spot_dest_token') || '',
-    destProfile: JSON.parse(localStorage.getItem('spot_dest_profile') || 'null'),
+    redirectUri: `${window.location.protocol}//127.0.0.1${currentPort}/callback`,
+    sourceToken: sessionStorage.getItem('spot_source_token') || localStorage.getItem('spot_source_token') || '',
+    sourceRefreshToken: sessionStorage.getItem('spot_source_refresh_token') || localStorage.getItem('spot_source_refresh_token') || '',
+    sourceProfile: JSON.parse(sessionStorage.getItem('spot_source_profile') || localStorage.getItem('spot_source_profile') || 'null'),
+    destToken: sessionStorage.getItem('spot_dest_token') || localStorage.getItem('spot_dest_token') || '',
+    destRefreshToken: sessionStorage.getItem('spot_dest_refresh_token') || localStorage.getItem('spot_dest_refresh_token') || '',
+    destProfile: JSON.parse(sessionStorage.getItem('spot_dest_profile') || localStorage.getItem('spot_dest_profile') || 'null'),
     playlists: JSON.parse(localStorage.getItem('spot_playlists') || '[]'),
     likedSongsTotal: parseInt(localStorage.getItem('spot_liked_total') || '0', 10),
     isTransferring: false
 };
+
+// Migrar tokens existentes de localStorage a sessionStorage por seguridad
+localStorage.removeItem('spot_source_token');
+localStorage.removeItem('spot_dest_token');
+localStorage.removeItem('spot_source_refresh_token');
+localStorage.removeItem('spot_dest_refresh_token');
+if (state.sourceToken) sessionStorage.setItem('spot_source_token', state.sourceToken);
+if (state.sourceRefreshToken) sessionStorage.setItem('spot_source_refresh_token', state.sourceRefreshToken);
+if (state.destToken) sessionStorage.setItem('spot_dest_token', state.destToken);
+if (state.destRefreshToken) sessionStorage.setItem('spot_dest_refresh_token', state.destRefreshToken);
 
 // Persistence helper for playlists
 function savePlaylists() {
@@ -172,7 +214,46 @@ async function exchangeCode(code, verifier) {
     return await res.json();
 }
 
-// Authenticated Spotify API caller with rate limit retry
+// Renovar access_token con refresh_token
+async function refreshAccessToken(mode) {
+    const refreshToken = mode === 'source' ? state.sourceRefreshToken : state.destRefreshToken;
+    if (!refreshToken) throw new Error(`No hay refresh token disponible para la cuenta de ${mode === 'source' ? 'origen' : 'destino'}.`);
+
+    const payload = new URLSearchParams({
+        client_id: state.clientId,
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken
+    });
+
+    const res = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: payload.toString()
+    });
+
+    const tokenData = await res.json();
+    if (tokenData.access_token) {
+        if (mode === 'source') {
+            state.sourceToken = tokenData.access_token;
+            sessionStorage.setItem('spot_source_token', tokenData.access_token);
+            if (tokenData.refresh_token) {
+                state.sourceRefreshToken = tokenData.refresh_token;
+                sessionStorage.setItem('spot_source_refresh_token', tokenData.refresh_token);
+            }
+        } else {
+            state.destToken = tokenData.access_token;
+            sessionStorage.setItem('spot_dest_token', tokenData.access_token);
+            if (tokenData.refresh_token) {
+                state.destRefreshToken = tokenData.refresh_token;
+                sessionStorage.setItem('spot_dest_refresh_token', tokenData.refresh_token);
+            }
+        }
+        return tokenData.access_token;
+    }
+    throw new Error(tokenData.error_description || tokenData.error || 'No se pudo renovar la sesión de Spotify');
+}
+
+// Authenticated Spotify API caller with rate limit retry & refresh token support
 async function spotifyApi(token, endpoint, options = {}) {
     const url = new URL(endpoint.startsWith('http') ? endpoint : `https://api.spotify.com/v1${endpoint}`);
     // Nunca enviar el Bearer token a un host indicado por datos externos.
@@ -213,6 +294,25 @@ async function spotifyApi(token, endpoint, options = {}) {
                 const err = new Error(msg);
                 err.status = res.status;
                 err.statusText = res.statusText;
+
+                // Auto-refresh token ante 401 si no se ha intentado ya
+                if (res.status === 401 && !options._isRetryAfterRefresh) {
+                    const mode = (token === state.sourceToken) ? 'source' : ((token === state.destToken) ? 'destination' : null);
+                    if (mode) {
+                        try {
+                            logMessage(`[Sesión] Renovando token expirado de cuenta de ${mode === 'source' ? 'origen' : 'destino'}...`);
+                            const newToken = await refreshAccessToken(mode);
+                            return await spotifyApi(newToken, endpoint, { ...options, _isRetryAfterRefresh: true });
+                        } catch (refreshErr) {
+                            console.warn('Error al auto-renovar token:', refreshErr);
+                        }
+                    }
+                }
+
+                // Errores deterministas de cliente: no reintentar en bucle
+                if ([400, 401, 403, 404].includes(res.status)) {
+                    throw err;
+                }
                 throw err;
             }
 
@@ -226,6 +326,10 @@ async function spotifyApi(token, endpoint, options = {}) {
                 return text;
             }
         } catch (err) {
+            // Si es un error de cliente permanente ya lanzado, propagar de inmediato
+            if (err.status && [400, 401, 403, 404].includes(err.status)) {
+                throw err;
+            }
             if (attempts >= 5) throw err;
             await sleep(1000 * attempts);
         }
@@ -393,6 +497,9 @@ async function loadSourceProfileAndPlaylists() {
             }
         } else if (err.message && (err.message.includes('401') || err.message.includes('expired'))) {
             state.sourceToken = '';
+            state.sourceRefreshToken = '';
+            sessionStorage.removeItem('spot_source_token');
+            sessionStorage.removeItem('spot_source_refresh_token');
             localStorage.removeItem('spot_source_token');
             alert('Tu sesión de Spotify expiró. Por favor vuelve a hacer clic en "Conectar Cuenta de Origen".');
         } else {
@@ -441,10 +548,21 @@ function renderPlaylists() {
             </div>
         `;
 
+        card.setAttribute('role', 'checkbox');
+        card.setAttribute('aria-checked', p.selected ? 'true' : 'false');
+        card.setAttribute('tabindex', '0');
+
         card.addEventListener('click', () => {
             p.selected = !p.selected;
             savePlaylists();
             renderPlaylists();
+        });
+
+        card.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                card.click();
+            }
         });
 
         grid.appendChild(card);
@@ -614,6 +732,9 @@ async function checkDestinationProfile() {
     } catch (err) {
         console.error('Error cargando destino:', err);
         state.destToken = '';
+        state.destRefreshToken = '';
+        sessionStorage.removeItem('spot_dest_token');
+        sessionStorage.removeItem('spot_dest_refresh_token');
         localStorage.removeItem('spot_dest_token');
 
         if (isForbidden(err)) {
@@ -777,36 +898,36 @@ async function addItemsToPlaylist(token, playlistId, uris) {
     }
 }
 
-// Save tracks with heart ❤️ to destination library using modern /me/library
+// Save tracks with heart ❤️ to destination library using standard /me/tracks
 async function saveLikedTracksToLibrary(token, trackUris) {
     if (!trackUris || trackUris.length === 0) return 0;
 
     let saved = 0;
-    const batchSize = 40; // Spotify API official limit for /me/library is 40 items
+    const batchSize = 50; // Límite oficial de Spotify para PUT /me/tracks
 
     for (let b = 0; b < trackUris.length; b += batchSize) {
         const batch = trackUris.slice(b, b + batchSize);
-        const urisParam = encodeURIComponent(batch.join(','));
+        const ids = batch.map(u => u.split(':').pop()).filter(Boolean);
 
         let success = false;
-        // 1. Modern Spotify endpoint: PUT /v1/me/library?uris=...
+        // 1. Endpoint estándar y probado de Spotify: PUT /me/tracks con JSON body
         try {
-            await spotifyApi(token, `/me/library?uris=${urisParam}`, {
-                method: 'PUT'
+            await spotifyApi(token, `/me/tracks`, {
+                method: 'PUT',
+                body: JSON.stringify({ ids: ids })
             });
             success = true;
-        } catch (libErr) {
-            console.warn('Intento con /me/library falló, probando fallback:', libErr);
-            // 2. Fallback to legacy /me/tracks in case older endpoint is active
+        } catch (tracksErr) {
+            console.warn('PUT /me/tracks falló, probando fallback a /me/library:', tracksErr);
+            // 2. Fallback a /me/library?uris=...
             try {
-                const ids = batch.map(u => u.split(':').pop()).filter(Boolean);
-                await spotifyApi(token, `/me/tracks`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ ids: ids })
+                const urisParam = encodeURIComponent(batch.join(','));
+                await spotifyApi(token, `/me/library?uris=${urisParam}`, {
+                    method: 'PUT'
                 });
                 success = true;
-            } catch (fallbackErr) {
-                throw libErr; // throw the /me/library error (e.g., 403 Forbidden)
+            } catch (libErr) {
+                throw tracksErr;
             }
         }
 
@@ -905,6 +1026,7 @@ async function executeTransfer() {
 
                 const percentage = Math.round((completedPlaylists / selectedPlaylists.length) * 100);
                 progressFill.style.width = `${percentage}%`;
+                progressFill.setAttribute('aria-valuenow', percentage);
                 progressPercent.textContent = `${percentage}%`;
 
                 logMessage(`✅ Lista <strong>${escapeHtml(pl.name)}</strong> guardada en tu biblioteca.`);
@@ -913,10 +1035,14 @@ async function executeTransfer() {
             }
 
             // Normal clone flow for user's own playlists or Liked Songs
-            logMessage(`📂 Leyendo canciones de lista propia: <strong>${escapeHtml(pl.name)}</strong>...`);
+            logMessage(`📂 Procesando lista propia: <strong>${escapeHtml(pl.name)}</strong>...`);
 
             let tracks = [];
-            if (pl.isLikedSongs) {
+            if (Array.isArray(pl.tracks) && pl.tracks.length > 0) {
+                // Si la playlist ya contiene canciones (respaldo JSON importado)
+                logMessage(`📂 Usando ${pl.tracks.length} canciones cargadas del respaldo JSON para: <strong>${escapeHtml(pl.name)}</strong>`);
+                tracks = pl.tracks.map(t => (typeof t === 'string' ? { uri: t } : t));
+            } else if (pl.isLikedSongs) {
                 tracks = await fetchLikedSongsTracks(state.sourceToken);
                 logMessage(`✔ Obtenidas ${tracks.length} canciones de Tus Me Gusta.`);
             } else {
@@ -1004,6 +1130,7 @@ async function executeTransfer() {
 
             const percentage = Math.round((completedPlaylists / selectedPlaylists.length) * 100);
             progressFill.style.width = `${percentage}%`;
+            progressFill.setAttribute('aria-valuenow', percentage);
             progressPercent.textContent = `${percentage}%`;
 
             logMessage(`✅ Lista <strong>${escapeHtml(createPlName)}</strong> finalizada con éxito.`);
@@ -1038,9 +1165,15 @@ async function executeTransfer() {
         finalCreatedList.forEach(item => {
             const row = document.createElement('div');
             row.className = 'flex items-center justify-between p-2 rounded-lg bg-spotify-dark/60 border border-spotify-border/60 hover:border-spotify-green transition';
+            
+            // Validación estricta de esquema para prevenir DOM XSS
+            const safeUrl = (typeof item.url === 'string' && (item.url.startsWith('https://open.spotify.com/') || item.url.startsWith('http://127.0.0.1:')))
+                ? item.url
+                : 'https://open.spotify.com/';
+
             row.innerHTML = `
-                <span class="font-medium text-white truncate mr-2">🎵 ${escapeHtml(item.name)} <span class="text-gray-500">(${item.tracksCount} tracks)</span></span>
-                <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="text-spotify-green hover:underline flex-shrink-0 flex items-center gap-1">
+                <span class="font-medium text-white truncate mr-2">🎵 ${escapeHtml(item.name)} <span class="text-gray-500">(${Number(item.tracksCount) || 0} tracks)</span></span>
+                <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-spotify-green hover:underline flex-shrink-0 flex items-center gap-1">
                     Abrir ↗
                 </a>
             `;
@@ -1051,6 +1184,14 @@ async function executeTransfer() {
     state.isTransferring = false;
     setStep(5);
 }
+
+// Alerta ante cierre accidental durante transferencia activa
+window.addEventListener('beforeunload', (e) => {
+    if (state.isTransferring) {
+        e.preventDefault();
+        e.returnValue = 'Hay una transferencia en curso. Si cierras la ventana, el proceso se interrumpirá.';
+    }
+});
 
 // Reset button
 document.getElementById('btn-restart').addEventListener('click', () => {
@@ -1102,13 +1243,21 @@ async function init() {
             if (tokenData.access_token) {
                 if (mode === 'source') {
                     state.sourceToken = tokenData.access_token;
-                    localStorage.setItem('spot_source_token', tokenData.access_token);
+                    sessionStorage.setItem('spot_source_token', tokenData.access_token);
+                    if (tokenData.refresh_token) {
+                        state.sourceRefreshToken = tokenData.refresh_token;
+                        sessionStorage.setItem('spot_source_refresh_token', tokenData.refresh_token);
+                    }
                     setStep(2);
                     await loadSourceProfileAndPlaylists();
                     return;
                 } else if (mode === 'destination') {
                     state.destToken = tokenData.access_token;
-                    localStorage.setItem('spot_dest_token', tokenData.access_token);
+                    sessionStorage.setItem('spot_dest_token', tokenData.access_token);
+                    if (tokenData.refresh_token) {
+                        state.destRefreshToken = tokenData.refresh_token;
+                        sessionStorage.setItem('spot_dest_refresh_token', tokenData.refresh_token);
+                    }
                     setStep(3);
                     updateDestinationSummary();
                     await checkDestinationProfile();

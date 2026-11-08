@@ -1,9 +1,28 @@
+/**
+ * ====================================================================
+ * SpotifyTransferly - Servidor HTTP Local y Proxy OAuth PKCE
+ * ====================================================================
+ * Propósito:
+ * 1. Servir los archivos estáticos de la aplicación web (HTML, JS, CSS).
+ * 2. Actuar como proxy seguro para el intercambio de tokens OAuth (/api/token)
+ *    hacia Spotify Accounts API, evitando restricciones de CORS del navegador.
+ * 3. Proteger el origen local mediante validación estricta de Host/Origin,
+ *    mitigando ataques de DNS Rebinding y Clickjacking.
+ * ====================================================================
+ */
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
-const PORT = process.env.PORT || 3000;
+const rawPort = process.env.PORT || '3000';
+const parsedPort = parseInt(rawPort, 10);
+if (isNaN(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+    console.error(`[Error] Puerto inválido especificado: ${rawPort}`);
+    process.exit(1);
+}
+const PORT = parsedPort;
 const HOST = '127.0.0.1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -25,7 +44,9 @@ const server = http.createServer(async (req, res) => {
     // Solo el navegador local puede acceder al proxy; evita DNS rebinding y CORS abierto.
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.spotify.com https://accounts.spotify.com;");
     if (!allowedHosts.includes(hostHeader) ||
         (req.headers.origin && !allowedHosts.some(host => req.headers.origin === `http://${host}`))) {
         res.writeHead(403);
@@ -56,18 +77,34 @@ const server = http.createServer(async (req, res) => {
     // Backend Proxy for Spotify Token Exchange
     if (pathname === '/api/token' && req.method === 'POST') {
         let body = '';
+        let destroyed = false;
+
         req.on('data', chunk => {
+            if (destroyed) return;
             body += chunk;
-            if (body.length > 16384) req.destroy();
+            if (body.length > 16384) {
+                destroyed = true;
+                res.writeHead(413, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Payload Too Large' }));
+                req.destroy();
+            }
         });
+
         req.on('end', async () => {
+            if (destroyed) return;
             try {
                 console.log('[Token Proxy] Intercambiando código con Spotify...');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+
                 const spotifyRes = await fetch('https://accounts.spotify.com/api/token', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: body
+                    body: body,
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
+
                 const data = await spotifyRes.text();
                 // Nunca registrar el cuerpo: contiene access_token y refresh_token.
                 console.log(`[Token Proxy] Respuesta Spotify (HTTP ${spotifyRes.status})`);
@@ -78,10 +115,10 @@ const server = http.createServer(async (req, res) => {
                 res.end(data);
             } catch (err) {
                 console.error('[Token Proxy Error]:', err);
-                res.writeHead(500, {
+                res.writeHead(502, {
                     'Content-Type': 'application/json',
                 });
-                res.end(JSON.stringify({ error: 'Proxy failed', details: err.message }));
+                res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
             }
         });
         return;
@@ -102,19 +139,27 @@ const server = http.createServer(async (req, res) => {
 
     fs.stat(filePath, (err, stats) => {
         if (err || !stats.isFile()) {
-            const fallbackPath = path.join(PUBLIC_DIR, 'index.html');
-            fs.readFile(fallbackPath, (fallbackErr, content) => {
-                if (fallbackErr) {
-                    res.writeHead(404, { 'Content-Type': 'text/plain' });
-                    res.end('404 No encontrado');
-                } else {
-                    res.writeHead(200, {
-                        'Content-Type': 'text/html; charset=UTF-8',
-                        'Cache-Control': 'no-cache, no-store, must-revalidate'
-                    });
-                    res.end(content);
-                }
-            });
+            const hasExtension = path.extname(pathname) !== '';
+            const acceptsHtml = (req.headers.accept || '').includes('text/html');
+
+            if (!hasExtension && acceptsHtml) {
+                const fallbackPath = path.join(PUBLIC_DIR, 'index.html');
+                fs.readFile(fallbackPath, (fallbackErr, content) => {
+                    if (fallbackErr) {
+                        res.writeHead(404, { 'Content-Type': 'text/plain; charset=UTF-8' });
+                        res.end('404 No encontrado');
+                    } else {
+                        res.writeHead(200, {
+                            'Content-Type': 'text/html; charset=UTF-8',
+                            'Cache-Control': 'no-cache, no-store, must-revalidate'
+                        });
+                        res.end(content);
+                    }
+                });
+            } else {
+                res.writeHead(404, { 'Content-Type': 'text/plain; charset=UTF-8' });
+                res.end('404 No encontrado');
+            }
             return;
         }
 

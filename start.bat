@@ -44,6 +44,6 @@ echo [OK] Node.js detectado exitosamente:
 echo.
 
 cd /d "%~dp0"
-echo Iniciando aplicacion web en http://localhost:3000 ...
-"%NODE_CMD%" server.js
+echo Iniciando aplicacion web en http://127.0.0.1:3000 ...
+"%NODE_CMD%" "%~dp0server.js"
 pause

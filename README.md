@@ -66,8 +66,8 @@ Navegador → llamadas autenticadas a api.spotify.com
 
 - El código versionado no necesita credenciales. `.gitignore` excluye `.env`, claves, certificados, tokens, registros y respaldos exportados habituales.
 - El proxy no imprime respuestas OAuth, limita el tamaño de la petición y rechaza hosts/orígenes ajenos al servidor local. El token Bearer solo se envía al dominio de la API de Spotify.
-- Los tokens, perfiles y listas se guardan en **localStorage**, sin cifrado. No copies ni publiques el perfil del navegador. Usa **Reiniciar sesión** para borrar los datos locales; esto no revoca por sí solo la autorización en Spotify.
-- El código OAuth se retira de la URL al procesarlo. El verificador PKCE se elimina después de recuperarlo. Los tokens no se renuevan automáticamente: si caducan, vuelve a conectar la cuenta.
+- Los tokens de sesión se guardan en **sessionStorage** (se destruyen automáticamente al cerrar la pestaña o ventana). Usa **Reiniciar sesión** para borrar todos los datos locales; esto no revoca por sí solo la autorización en Spotify.
+- El código OAuth se retira de la URL al procesarlo. El verificador PKCE se elimina después de recuperarlo. Los tokens se renuevan automáticamente mediante el `refresh_token` si caducan durante una transferencia prolongada.
 - Los respaldos JSON contienen nombres, descripciones e identificadores de listas y canciones. Son datos personales aunque no incluyan tokens. Consérvalos fuera de Git.
 - Hay conexiones externas a Spotify y al CDN de Tailwind CSS. La interfaz necesita Internet; “local” describe dónde se ejecuta la aplicación, no ausencia de tráfico externo.
 - Los nombres externos se escapan antes de insertarlos en plantillas HTML. No cargues respaldos de procedencia desconocida.
@@ -76,7 +76,7 @@ Navegador → llamadas autenticadas a api.spotify.com
 
 La transferencia no es transaccional ni tiene reanudación: repetirla puede duplicar listas. Los reintentos de escritura y alternativas de endpoints también pueden duplicar operaciones si Spotify procesa una solicitud antes de fallar la respuesta. No se copian archivos de audio, portadas ni todos los metadatos.
 
-La importación JSON carga la selección y sus pistas, pero el motor actual vuelve a consultar Spotify en lugar de consumir directamente esas pistas. Por eso no debe considerarse una restauración autónoma ni una migración sin cuenta origen.
+La importación JSON carga las listas y transfiere directamente sus pistas guardadas a la cuenta de destino sin requerir conexión a la cuenta de origen. Si se repite una transferencia, pueden crearse listas duplicadas en la cuenta destino. No se copian archivos de audio ni portadas personalizadas.
 
 ## Verificación
 
