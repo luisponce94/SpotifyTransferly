@@ -1,6 +1,6 @@
 {
   "name": "spot-transfer-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Aplicación web local gratuita para transferir playlists y canciones entre cuentas de Spotify",
   "main": "server.js",
   "scripts": {
