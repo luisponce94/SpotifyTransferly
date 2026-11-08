@@ -79,6 +79,14 @@ const server = http.createServer(async (req, res) => {
         let body = '';
         let destroyed = false;
 
+        req.on('error', (err) => {
+            console.warn('[Spotify Proxy Stream Error]:', err.message);
+            if (!res.headersSent) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Bad Request', details: err.message }));
+            }
+        });
+
         req.on('data', chunk => {
             if (destroyed) return;
             body += chunk;
@@ -123,10 +131,12 @@ const server = http.createServer(async (req, res) => {
                 res.end(data);
             } catch (err) {
                 console.error('[Token Proxy Error]:', err);
-                res.writeHead(502, {
-                    'Content-Type': 'application/json',
-                });
-                res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+                if (!res.headersSent) {
+                    res.writeHead(502, {
+                        'Content-Type': 'application/json',
+                    });
+                    res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+                }
             }
         });
         return;
@@ -136,6 +146,14 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/youtube/token' && req.method === 'POST') {
         let body = '';
         let destroyed = false;
+
+        req.on('error', (err) => {
+            console.warn('[YouTube Proxy Stream Error]:', err.message);
+            if (!res.headersSent) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Bad Request', details: err.message }));
+            }
+        });
 
         req.on('data', chunk => {
             if (destroyed) return;
@@ -180,12 +198,21 @@ const server = http.createServer(async (req, res) => {
                 res.end(data);
             } catch (err) {
                 console.error('[YouTube Token Proxy Error]:', err);
-                res.writeHead(502, {
-                    'Content-Type': 'application/json',
-                });
-                res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+                if (!res.headersSent) {
+                    res.writeHead(502, {
+                        'Content-Type': 'application/json',
+                    });
+                    res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+                }
             }
         });
+        return;
+    }
+
+    // Validación de método HTTP para archivos estáticos
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'text/plain; charset=UTF-8' });
+        res.end('405 Método no permitido');
         return;
     }
 

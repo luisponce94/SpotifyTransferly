@@ -56,7 +56,8 @@ La aplicación utiliza el flujo estándar y seguro **OAuth 2.0 con PKCE (Proof K
 3. En **Pantalla de consentimiento de OAuth**, selecciona tipo *Externo* y agrega tu correo en *Usuarios de prueba*.
 4. En **Credenciales > Crear credenciales > ID de cliente de OAuth**, selecciona tipo **Aplicación web**.
 5. En **URIs de redireccionamiento autorizados**, añade exactamente: `http://127.0.0.1:3000/callback`
-6. Guarda y copia el **ID de cliente** generado (termina en `.apps.googleusercontent.com`).
+6. Guarda y copia el **ID de cliente** generado (termina en `.apps.googleusercontent.com`) y el **Secreto de cliente** (Client Secret).
+7. *Nota sobre cuotas*: Google asigna 10,000 unidades de cuota gratuita diaria por proyecto. La app maneja automáticamente este límite pausando la transferencia sin pérdida de datos si la cuota del día se agota.
 
 ---
 
@@ -64,7 +65,7 @@ La aplicación utiliza el flujo estándar y seguro **OAuth 2.0 con PKCE (Proof K
 
 - **Zero External Server**: Todos los intercambios de credenciales ocurren entre tu navegador y los servidores oficiales de Spotify / Google a través del proxy local en `127.0.0.1:3000`.
 - **Aislamiento de Tokens en `sessionStorage`**: Los tokens de acceso y actualización (`refresh_token`) se guardan temporalmente en `sessionStorage`, lo que garantiza que se eliminan por completo al cerrar la pestaña o el navegador.
-- **Sin Client Secret**: La autenticación usa PKCE con desafíos criptográficos SHA-256 en tiempo de ejecución.
+- **Flujo PKCE & Credenciales Locales**: Para Spotify se usa PKCE puro sin secreto; para Google Web se envía el secreto localmente desde tu navegador al proxy sin intermediarios.
 - **Protección DOM XSS & CSP**: Validación estricta de esquemas de URL, escape de entidades HTML y cabeceras estrictas de Content Security Policy (CSP).
 
 ---

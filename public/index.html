@@ -198,7 +198,7 @@
                         <li>En <strong class="text-white">Pantalla de consentimiento de OAuth</strong>, selecciona tipo <em>Externo</em> y guarda. En usuarios de prueba agrega tu correo de Google.</li>
                         <li>En <strong class="text-white">Credenciales &rarr; Crear credenciales &rarr; ID de cliente de OAuth</strong>, elige tipo <strong class="text-white">Aplicación web</strong>.</li>
                         <li>En <strong class="text-white">URIs de redireccionamiento autorizados</strong>, agrega: <code class="text-red-400 font-mono">http://127.0.0.1:3000/callback</code></li>
-                        <li>Guarda, copia el <strong class="text-white">ID de cliente</strong> resultante (termina en <code>.apps.googleusercontent.com</code>) y pégalo abajo.</li>
+                        <li>Guarda, copia el <strong class="text-white">ID de cliente</strong> y el <strong class="text-white">Secreto de cliente</strong> (Client Secret) generados por Google y pégalos abajo.</li>
                         <li class="pt-1 text-amber-300">💡 <strong>Nota sobre cuotas de YouTube:</strong> Google Cloud otorga 10,000 unidades gratuitas al día. Cada búsqueda de canción consume 100 unidades (~100 canciones/día). Si transfieres bibliotecas muy extensas, hazlo por tandas diarias o solicita aumento de cuota gratuito en la consola.</li>
                     </ol>
                 </details>
@@ -212,11 +212,20 @@
                         <input type="text" id="input-client-id" placeholder="Ej: 3a7b9c1d8e2f..." class="w-full bg-spotify-dark border border-spotify-border focus:border-spotify-green focus:ring-1 focus:ring-spotify-green rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
                     </div>
 
-                    <div id="field-google-client-id">
-                        <label for="input-google-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
-                            <span class="text-red-500">🔴</span> Google / YouTube Client ID:
-                        </label>
-                        <input type="text" id="input-google-client-id" placeholder="Ej: 123456789-abcdef.apps.googleusercontent.com" class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                    <div id="field-google-client-id" class="space-y-3">
+                        <div>
+                            <label for="input-google-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                <span class="text-red-500">🔴</span> Google / YouTube Client ID:
+                            </label>
+                            <input type="text" id="input-google-client-id" placeholder="Ej: 123456789-abcdef.apps.googleusercontent.com" class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                        </div>
+                        <div>
+                            <label for="input-google-client-secret" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                <span class="text-red-500">🔴</span> Google Client Secret:
+                            </label>
+                            <input type="password" id="input-google-client-secret" placeholder="Ej: GOCSPX-..." class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                            <p class="text-[11px] text-gray-500 mt-1">Requerido por Google Cloud para aplicaciones web. Se conserva localmente en tu navegador sin servidores externos.</p>
+                        </div>
                     </div>
 
                     <button type="submit" class="w-full bg-gradient-to-r from-spotify-green to-emerald-500 hover:from-spotify-hover hover:to-emerald-400 text-black font-bold py-3.5 px-6 rounded-xl transition duration-200 flex items-center justify-center gap-2 text-base shadow-lg shadow-spotify-green/20">

@@ -39,6 +39,7 @@ const state = {
     transferMode: localStorage.getItem('transfer_mode') || 'spotify-to-yt',
     clientId: localStorage.getItem('spot_client_id') || '',
     googleClientId: localStorage.getItem('google_client_id') || '',
+    googleClientSecret: localStorage.getItem('google_client_secret') || '',
     redirectUri: `${window.location.protocol}//127.0.0.1${currentPort}/callback`,
 
     // Spotify Tokens & Profiles
@@ -117,6 +118,14 @@ function isForbidden(err) {
     if (err.status === 403) return true;
     const msg = (err.message || '').toLowerCase();
     return msg.includes('403') || msg.includes('forbidden') || msg.includes('not registered') || msg.includes('quotaexceeded');
+}
+
+// Check if error is quota exceeded
+function isQuotaExceeded(err) {
+    if (!err) return false;
+    if (err.isQuotaExceeded) return true;
+    const msg = (err.message || '').toLowerCase();
+    return msg.includes('quotaexceeded') || msg.includes('quota exceeded') || msg.includes('cuota diaria de youtube superada');
 }
 
 // Escapar texto externo antes de insertarlo en el DOM
@@ -306,6 +315,9 @@ async function exchangeGoogleCode(code, verifier) {
         redirect_uri: state.redirectUri,
         code_verifier: verifier
     });
+    if (state.googleClientSecret) {
+        payload.set('client_secret', state.googleClientSecret);
+    }
 
     const res = await fetch('/api/youtube/token', {
         method: 'POST',
@@ -365,6 +377,9 @@ async function refreshGoogleToken(mode) {
         grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
+    if (state.googleClientSecret) {
+        payload.set('client_secret', state.googleClientSecret);
+    }
 
     const res = await fetch('/api/youtube/token', {
         method: 'POST',
@@ -498,13 +513,21 @@ async function youtubeApi(token, endpoint, options = {}) {
 
             if (!res.ok) {
                 let msg = `HTTP ${res.status}`;
+                let isQuota = false;
                 try {
                     const errData = JSON.parse(text);
                     msg = errData.error?.message || msg;
-                } catch (e) {}
-                const err = new Error(msg);
+                    const reason = errData.error?.errors?.[0]?.reason || '';
+                    if (reason === 'quotaExceeded' || msg.toLowerCase().includes('quota')) {
+                        isQuota = true;
+                    }
+                } catch (e) {
+                    if (text && text.toLowerCase().includes('quota')) isQuota = true;
+                }
+                const err = new Error(isQuota ? 'Cuota diaria de YouTube superada (10,000 unidades). Google Cloud restablece la cuota a medianoche (PT).' : msg);
                 err.status = res.status;
                 err.statusText = res.statusText;
+                err.isQuotaExceeded = isQuota;
 
                 // Auto-refresh token ante 401
                 if (res.status === 401 && !options._isRetryAfterRefresh) {
@@ -651,6 +674,7 @@ async function searchYouTubeVideo(token, title, artist) {
             return res.items[0].id.videoId;
         }
     } catch (e) {
+        if (isQuotaExceeded(e)) throw e;
         console.warn('Error en búsqueda de YouTube:', e);
     }
 
@@ -660,6 +684,7 @@ async function searchYouTubeVideo(token, title, artist) {
         const res2 = await youtubeApi(token, fallbackUrl);
         return res2?.items?.[0]?.id?.videoId || null;
     } catch (e2) {
+        if (isQuotaExceeded(e2)) throw e2;
         return null;
     }
 }
@@ -708,10 +733,12 @@ async function searchSpotifyTrack(token, rawTitle, defaultArtist = '') {
     const title = parsed.title || rawTitle;
     const artist = parsed.artist || defaultArtist;
 
-    // 1. Intento estricto con campos track y artist
+    // 1. Intento estricto con campos track y artist entrecomillados para exactitud
     if (artist && title) {
         try {
-            const q = `track:${encodeURIComponent(title)} artist:${encodeURIComponent(artist)}`;
+            const cleanT = cleanTitleForSearch(title);
+            const cleanA = cleanTitleForSearch(artist);
+            const q = encodeURIComponent(`track:"${cleanT}" artist:"${cleanA}"`);
             const res = await spotifyApi(token, `/search?type=track&limit=1&q=${q}`);
             if (res?.tracks?.items?.[0]?.uri) return res.tracks.items[0].uri;
         } catch (e) {}
@@ -919,6 +946,10 @@ if (state.clientId) {
 if (state.googleClientId) {
     document.getElementById('input-google-client-id').value = state.googleClientId;
 }
+if (state.googleClientSecret) {
+    const secInput = document.getElementById('input-google-client-secret');
+    if (secInput) secInput.value = state.googleClientSecret;
+}
 updateModeUI();
 
 document.getElementById('form-config').addEventListener('submit', (e) => {
@@ -928,6 +959,7 @@ document.getElementById('form-config').addEventListener('submit', (e) => {
 
     const spotId = document.getElementById('input-client-id').value.trim();
     const googleId = document.getElementById('input-google-client-id').value.trim();
+    const googleSec = document.getElementById('input-google-client-secret')?.value.trim() || '';
 
     if ((srcPlat === 'spotify' || dstPlat === 'spotify') && !spotId) {
         alert('Por favor ingresa tu Spotify Client ID.');
@@ -945,6 +977,13 @@ document.getElementById('form-config').addEventListener('submit', (e) => {
     if (googleId) {
         state.googleClientId = googleId;
         localStorage.setItem('google_client_id', googleId);
+    }
+    if (googleSec) {
+        state.googleClientSecret = googleSec;
+        localStorage.setItem('google_client_secret', googleSec);
+    } else {
+        state.googleClientSecret = '';
+        localStorage.removeItem('google_client_secret');
     }
 
     setStep(2);
@@ -1606,8 +1645,8 @@ async function executeTransfer() {
         const pl = selectedPlaylists[i];
 
         try {
-            currentTask.textContent = `[${i + 1}/${selectedPlaylists.length}] "${escapeHtml(pl.name)}"`;
-            statStatus.textContent = `Procesando: ${escapeHtml(pl.name)}`;
+            currentTask.textContent = `[${i + 1}/${selectedPlaylists.length}] "${pl.name}"`;
+            statStatus.textContent = `Procesando: ${pl.name}`;
             logMessage(`📂 [${i + 1}/${selectedPlaylists.length}] Procesando lista: <strong>${escapeHtml(pl.name)}</strong>...`);
 
             // PASO A: Obtener pistas desde el origen
@@ -1760,6 +1799,12 @@ async function executeTransfer() {
         } catch (err) {
             console.error(`Error transfiriendo lista ${pl.name}:`, err);
             logMessage(`<span class="text-red-400">❌ Error al transferir "${escapeHtml(pl.name)}": ${escapeHtml(err.message)}</span>`);
+
+            if (isQuotaExceeded(err)) {
+                logMessage(`<span class="text-amber-400 font-bold">🛑 Transferencia pausada por límite de cuota diaria de Google Cloud (10,000 unidades). El progreso completado se ha conservado con éxito.</span>`);
+                alert('⚠️ Se ha alcanzado el límite de cuota diaria gratuita de YouTube (10,000 unidades). La transferencia se ha pausado para proteger tu progreso.');
+                break;
+            }
         }
     }
 
