@@ -40,15 +40,35 @@ Abre tu navegador en `http://127.0.0.1:3000`.
 
 ---
 
-## 🔑 Configuración de Credenciales (100% Gratis)
+## ⚡ Modo 1-Click y Configuración Rápida (Zero-Friction)
 
-La aplicación utiliza el flujo estándar y seguro **OAuth 2.0 con PKCE** y proxies locales en `127.0.0.1`.
+A diferencia de servicios comerciales de suscripción (Soundiiz, TuneMyMusic) que almacenan tus cuentas en servidores de terceros, **MusicTransferly corre 100% en tu propia computadora**, garantizando máxima privacidad sin telemetría ni intermediarios.
+
+Para ofrecer una experiencia instantánea y sin fricción:
+1. **Flujo Directo**: La aplicación abre directamente en la selección de plataformas (🟢 Spotify, 🔴 YouTube Music, 🟣 Deezer). Solo eliges origen, destino y haces clic en **Continuar a Conectar Cuentas**.
+2. **Archivo `config.json` (Opcional pero recomendado)**: Puedes copiar `config.example.json` a `config.json` e incluir tus credenciales. El servidor y la interfaz las cargarán automáticamente, permitiéndote conectar en 1 clic sin tener que escribir nada en el navegador:
+   ```json
+   {
+     "spotifyClientId": "tu_spotify_client_id",
+     "googleClientId": "tu_google_client_id.apps.googleusercontent.com",
+     "googleClientSecret": "tu_google_secret",
+     "deezerAppId": "tu_deezer_app_id",
+     "deezerSecret": "tu_deezer_secret"
+   }
+   ```
+3. **Configuración en Vivo en Navegador**: Si no usas `config.json`, la app te solicitará el Client ID únicamente la primera vez que intentes conectar a cada plataforma mediante una ventana emergente rápida, y lo recordará localmente.
+
+---
+
+## 🔑 Cómo Obtener tus Credenciales Gratuitas (1 única vez)
+
+La aplicación utiliza el flujo estándar y seguro **OAuth 2.0 con PKCE** y proxies locales en `127.0.0.1`. Las claves solo se configuran una vez y son 100% gratuitas:
 
 ### 1. Para Spotify:
 1. Accede a [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) e inicia sesión con tu cuenta de Spotify.
 2. Haz clic en **Create app**, dale un nombre (ej. `MusicTransferly`) y selecciona **Web API**.
 3. En **Redirect URIs**, ingresa exactamente: `http://127.0.0.1:3000/callback`
-4. Guarda y copia tu **Client ID** para pegarlo en la aplicación.
+4. Guarda y copia tu **Client ID** (para pegarlo en `config.json` o en la app).
 5. *(Modo Desarrollo)*: En **Settings > Users and Access**, agrega los correos de las cuentas de Spotify que utilizarás.
 
 ### 2. Para YouTube Music (Google Cloud):

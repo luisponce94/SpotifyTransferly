@@ -81,7 +81,7 @@
                     <div id="step-dot-1" class="w-10 h-10 rounded-full bg-spotify-green text-black font-bold flex items-center justify-center text-sm shadow-md transition-all">
                         1
                     </div>
-                    <span class="text-xs font-medium text-white mt-2">Configurar</span>
+                    <span class="text-xs font-medium text-white mt-2">Plataformas</span>
                 </li>
 
                 <!-- Step 2 -->
@@ -110,13 +110,13 @@
             </ol>
         </nav>
 
-        <!-- VIEW 1: Configurar Ruta y Credenciales -->
+        <!-- VIEW 1: Seleccionar Plataformas -->
         <section id="view-step-1" class="space-y-6">
             <div class="bg-spotify-card border border-spotify-border rounded-2xl p-6 md:p-8 shadow-xl space-y-6">
                 <div>
-                    <h2 class="text-2xl font-bold text-white mb-1">Paso 1: Selecciona la ruta de migración</h2>
+                    <h2 class="text-2xl font-bold text-white mb-1">Paso 1: Selecciona tus plataformas de música</h2>
                     <p class="text-gray-400 text-sm">
-                        Elige qué plataforma tienes como origen y hacia cuál deseas transferir tus listas.
+                        Elige tu plataforma de origen y la de destino. Todo se migra de forma local y 100% privada sin intermediarios externos.
                     </p>
                 </div>
 
@@ -128,16 +128,16 @@
                             1. Plataforma de Origen (¿De dónde vienen tus listas?)
                         </label>
                         <div class="grid grid-cols-3 gap-2" id="source-platform-selector">
-                            <button type="button" data-platform="spotify" class="plat-src-btn p-3 rounded-xl border border-spotify-green bg-spotify-green/10 text-center transition flex flex-col items-center justify-center gap-1.5 hover:border-spotify-green">
-                                <span class="text-xl">🟢</span>
+                            <button type="button" data-platform="spotify" aria-pressed="true" class="plat-src-btn p-3 rounded-xl border border-spotify-green bg-spotify-green/10 text-center transition flex flex-col items-center justify-center gap-1.5 hover:border-spotify-green cursor-pointer">
+                                <span class="text-2xl" aria-hidden="true">🟢</span>
                                 <span class="text-xs font-bold text-white">Spotify</span>
                             </button>
-                            <button type="button" data-platform="youtube" class="plat-src-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-gray-500">
-                                <span class="text-xl">🔴</span>
+                            <button type="button" data-platform="youtube" aria-pressed="false" class="plat-src-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-gray-500 cursor-pointer">
+                                <span class="text-2xl" aria-hidden="true">🔴</span>
                                 <span class="text-xs font-bold text-white">YouTube</span>
                             </button>
-                            <button type="button" data-platform="deezer" class="plat-src-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-purple-500">
-                                <span class="text-xl">🟣</span>
+                            <button type="button" data-platform="deezer" aria-pressed="false" class="plat-src-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-purple-500 cursor-pointer">
+                                <span class="text-2xl" aria-hidden="true">🟣</span>
                                 <span class="text-xs font-bold text-white">Deezer</span>
                             </button>
                         </div>
@@ -149,16 +149,16 @@
                             2. Plataforma de Destino (¿A dónde las transferirás?)
                         </label>
                         <div class="grid grid-cols-3 gap-2" id="dest-platform-selector">
-                            <button type="button" data-platform="spotify" class="plat-dst-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-spotify-green">
-                                <span class="text-xl">🟢</span>
+                            <button type="button" data-platform="spotify" aria-pressed="false" class="plat-dst-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-spotify-green cursor-pointer">
+                                <span class="text-2xl" aria-hidden="true">🟢</span>
                                 <span class="text-xs font-bold text-white">Spotify</span>
                             </button>
-                            <button type="button" data-platform="youtube" class="plat-dst-btn p-3 rounded-xl border border-red-500 bg-red-500/10 text-center transition flex flex-col items-center justify-center gap-1.5 hover:border-red-500">
-                                <span class="text-xl">🔴</span>
+                            <button type="button" data-platform="youtube" aria-pressed="true" class="plat-dst-btn p-3 rounded-xl border border-red-500 bg-red-500/10 text-center transition flex flex-col items-center justify-center gap-1.5 hover:border-red-500 cursor-pointer">
+                                <span class="text-2xl" aria-hidden="true">🔴</span>
                                 <span class="text-xs font-bold text-white">YouTube</span>
                             </button>
-                            <button type="button" data-platform="deezer" class="plat-dst-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-purple-500">
-                                <span class="text-xl">🟣</span>
+                            <button type="button" data-platform="deezer" aria-pressed="false" class="plat-dst-btn p-3 rounded-xl border border-spotify-border bg-spotify-card/40 text-center transition flex flex-col items-center justify-center gap-1.5 opacity-70 hover:opacity-100 hover:border-purple-500 cursor-pointer">
+                                <span class="text-2xl" aria-hidden="true">🟣</span>
                                 <span class="text-xs font-bold text-white">Deezer</span>
                             </button>
                         </div>
@@ -166,127 +166,147 @@
                 </div>
 
                 <!-- Active Route Banner -->
-                <div class="bg-gradient-to-r from-spotify-dark via-spotify-card to-spotify-dark border border-spotify-border rounded-xl p-3.5 flex items-center justify-between text-xs">
+                <div class="bg-gradient-to-r from-spotify-dark via-spotify-card to-spotify-dark border border-spotify-border rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
                     <div class="flex items-center gap-2">
                         <span class="text-gray-400">Ruta seleccionada:</span>
-                        <span id="active-route-badge" class="font-bold text-white bg-black/60 px-3 py-1 rounded-lg border border-spotify-border flex items-center gap-2">
+                        <span id="active-route-badge" class="font-bold text-white bg-black/60 px-3 py-1.5 rounded-lg border border-spotify-border flex items-center gap-2 text-sm">
                             🟢 Spotify ➔ 🔴 YouTube Music
                         </span>
                     </div>
-                    <span class="text-gray-500 text-[11px] hidden sm:inline">Migración directa local</span>
+                    <span class="text-emerald-400 text-xs flex items-center gap-1 font-medium">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span> Migración directa 100% privada
+                    </span>
                 </div>
 
-                <!-- Shared Redirect URI Box -->
-                <div class="bg-black/50 border border-spotify-border rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                    <div>
-                        <span class="text-gray-400">URI de redireccionamiento local autorizada (Redirect URI):</span>
-                        <div class="mt-1 font-mono text-spotify-green text-sm select-all" id="redirect-uri-display">http://127.0.0.1:3000/callback</div>
-                    </div>
-                    <button type="button" id="btn-copy-uri" class="bg-spotify-border hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg transition whitespace-nowrap">
-                        Copiar URI
-                    </button>
-                </div>
+                <!-- Primary Action: Continuar -->
+                <button type="button" id="btn-proceed-step-1" class="w-full bg-gradient-to-r from-spotify-green to-emerald-400 hover:from-spotify-hover hover:to-emerald-300 text-black font-extrabold py-4 px-6 rounded-2xl transition duration-200 flex items-center justify-center gap-3 text-base sm:text-lg shadow-xl shadow-spotify-green/20 hover:scale-[1.01] active:scale-[0.99] cursor-pointer">
+                    Continuar a Conectar Cuentas
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                </button>
 
-                <!-- Guide Collapsible: Spotify -->
-                <details id="guide-spotify" class="group bg-black/60 border border-spotify-border rounded-xl p-4 text-xs text-gray-300">
-                    <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
+                <!-- Optional Advanced Configuration Accordion -->
+                <details id="advanced-config-panel" class="group bg-black/50 border border-spotify-border rounded-xl p-4 text-xs text-gray-300">
+                    <summary class="font-semibold text-gray-400 hover:text-white cursor-pointer flex items-center justify-between select-none">
                         <span class="flex items-center gap-2">
-                            <span class="text-spotify-green font-bold">🟢 Guía:</span> ¿Cómo obtener tu Spotify Client ID gratis? (1 min)
+                            <span>⚙️</span> Configuración Avanzada de Claves API (Opcional)
                         </span>
                         <span class="text-gray-500 group-open:rotate-180 transition">▼</span>
                     </summary>
-                    <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
-                        <li>Entra al <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" class="text-spotify-green underline font-bold">Spotify Developer Dashboard</a> e inicia sesión.</li>
-                        <li>Haz clic en <strong class="text-white">Create app</strong> y ponle de nombre <strong>SpotTransfer</strong>.</li>
-                        <li>En <strong class="text-white">Redirect URIs</strong> pega: <code class="text-spotify-green font-mono">http://127.0.0.1:3000/callback</code></li>
-                        <li>En "¿Which API/SDKs are you planning to use?", marca <strong class="text-white">Web API</strong> y guarda los cambios.</li>
-                        <li>En <strong class="text-white">Settings</strong> de tu app, copia tu <strong class="text-white">Client ID</strong> y pégalo abajo.</li>
-                    </ol>
-                </details>
+                    <div class="mt-4 space-y-4 border-t border-spotify-border/40 pt-4">
+                        <p class="text-gray-400 text-xs">
+                            Si deseas utilizar tus propias credenciales de desarrollador en lugar de los valores de <code class="text-spotify-green">config.json</code>, puedes introducirlas aquí:
+                        </p>
 
-                <!-- Guide Collapsible: Google / YouTube -->
-                <details id="guide-youtube" class="group bg-black/60 border border-spotify-border rounded-xl p-4 text-xs text-gray-300">
-                    <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
-                        <span class="flex items-center gap-2">
-                            <span class="text-red-500 font-bold">🔴 Guía:</span> ¿Cómo obtener tu Google / YouTube Client ID gratis? (2 min)
-                        </span>
-                        <span class="text-gray-500 group-open:rotate-180 transition">▼</span>
-                    </summary>
-                    <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
-                        <li>Entra a <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" class="text-red-400 underline font-bold">Google Cloud Console</a> y crea un proyecto gratuito.</li>
-                        <li>Ve a <strong class="text-white">APIs y servicios &rarr; Biblioteca</strong>, busca <strong class="text-white">YouTube Data API v3</strong> y haz clic en <strong class="text-white">Habilitar</strong>.</li>
-                        <li>En <strong class="text-white">Pantalla de consentimiento de OAuth</strong>, selecciona tipo <em>Externo</em> y guarda. En usuarios de prueba agrega tu correo de Google.</li>
-                        <li>En <strong class="text-white">Credenciales &rarr; Crear credenciales &rarr; ID de cliente de OAuth</strong>, elige tipo <strong class="text-white">Aplicación web</strong>.</li>
-                        <li>En <strong class="text-white">URIs de redireccionamiento autorizados</strong>, agrega: <code class="text-red-400 font-mono">http://127.0.0.1:3000/callback</code></li>
-                        <li>Guarda, copia el <strong class="text-white">ID de cliente</strong> y el <strong class="text-white">Secreto de cliente</strong> (Client Secret) generados por Google y pégalos abajo.</li>
-                        <li class="pt-1 text-amber-300">💡 <strong>Nota sobre cuotas de YouTube:</strong> Google Cloud otorga 10,000 unidades gratuitas al día. Cada búsqueda de canción consume 100 unidades (~100 canciones/día). Si transfieres bibliotecas muy extensas, hazlo por tandas diarias o solicita aumento de cuota gratuito en la consola.</li>
-                    </ol>
-                </details>
+                        <!-- Shared Redirect URI Box -->
+                        <div class="bg-black/60 border border-spotify-border rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                            <div>
+                                <span class="text-gray-400">URI de redireccionamiento local autorizada (Redirect URI):</span>
+                                <div class="mt-0.5 font-mono text-spotify-green text-sm select-all" id="redirect-uri-display">http://127.0.0.1:3000/callback</div>
+                            </div>
+                            <button type="button" id="btn-copy-uri" class="bg-spotify-border hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg transition whitespace-nowrap cursor-pointer">
+                                Copiar URI
+                            </button>
+                        </div>
 
-                <!-- Guide Collapsible: Deezer -->
-                <details id="guide-deezer" class="group bg-black/60 border border-spotify-border rounded-xl p-4 text-xs text-gray-300">
-                    <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
-                        <span class="flex items-center gap-2">
-                            <span class="text-purple-400 font-bold">🟣 Guía:</span> ¿Cómo obtener tu Deezer App ID y Secret gratis? (1 min)
-                        </span>
-                        <span class="text-gray-500 group-open:rotate-180 transition">▼</span>
-                    </summary>
-                    <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
-                        <li>Entra al <a href="https://developers.deezer.com/myapps" target="_blank" rel="noopener noreferrer" class="text-purple-400 underline font-bold">Deezer Developer Portal</a> e inicia sesión con tu cuenta.</li>
-                        <li>Haz clic en <strong class="text-white">Crear una nueva aplicación</strong> (Create a new application).</li>
-                        <li>En <strong class="text-white">Nombre de la aplicación</strong> pon: <strong>MusicTransferly</strong>.</li>
-                        <li>En <strong class="text-white">Dominio de la aplicación</strong> pon: <code class="text-purple-400 font-mono">127.0.0.1</code></li>
-                        <li>En <strong class="text-white">URL de redireccionamiento</strong> pon: <code class="text-purple-400 font-mono">http://127.0.0.1:3000/callback</code></li>
-                        <li>Guarda los cambios, copia tu <strong class="text-white">ID de la aplicación</strong> (App ID) y la <strong class="text-white">Clave secreta</strong> (Secret Key) y pégalos abajo.</li>
-                    </ol>
-                </details>
+                        <!-- Guide Collapsible: Spotify -->
+                        <details id="guide-spotify" class="group/sub bg-black/40 border border-spotify-border/70 rounded-xl p-3.5 text-xs text-gray-300">
+                            <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
+                                <span class="flex items-center gap-2">
+                                    <span class="text-spotify-green font-bold">🟢 Guía:</span> ¿Cómo obtener tu Spotify Client ID gratis? (1 min)
+                                </span>
+                                <span class="text-gray-500 group-open/sub:rotate-180 transition">▼</span>
+                            </summary>
+                            <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
+                                <li>Entra al <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" class="text-spotify-green underline font-bold">Spotify Developer Dashboard</a> e inicia sesión.</li>
+                                <li>Haz clic en <strong class="text-white">Create app</strong> y ponle de nombre <strong>SpotTransfer</strong>.</li>
+                                <li>En <strong class="text-white">Redirect URIs</strong> pega: <code class="text-spotify-green font-mono">http://127.0.0.1:3000/callback</code></li>
+                                <li>En "¿Which API/SDKs are you planning to use?", marca <strong class="text-white">Web API</strong> y guarda los cambios.</li>
+                                <li>En <strong class="text-white">Settings</strong> de tu app, copia tu <strong class="text-white">Client ID</strong> y pégalo abajo.</li>
+                            </ol>
+                        </details>
 
-                <!-- Form: Client IDs -->
-                <form id="form-config" class="space-y-4">
-                    <div id="field-spotify-client-id">
-                        <label for="input-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
-                            <span class="text-spotify-green">🟢</span> Spotify Client ID:
-                        </label>
-                        <input type="text" id="input-client-id" placeholder="Ej: 3a7b9c1d8e2f..." class="w-full bg-spotify-dark border border-spotify-border focus:border-spotify-green focus:ring-1 focus:ring-spotify-green rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                        <!-- Guide Collapsible: Google / YouTube -->
+                        <details id="guide-youtube" class="group/sub bg-black/40 border border-spotify-border/70 rounded-xl p-3.5 text-xs text-gray-300">
+                            <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
+                                <span class="flex items-center gap-2">
+                                    <span class="text-red-500 font-bold">🔴 Guía:</span> ¿Cómo obtener tu Google / YouTube Client ID gratis? (2 min)
+                                </span>
+                                <span class="text-gray-500 group-open/sub:rotate-180 transition">▼</span>
+                            </summary>
+                            <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
+                                <li>Entra a <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" class="text-red-400 underline font-bold">Google Cloud Console</a> y crea un proyecto gratuito.</li>
+                                <li>Ve a <strong class="text-white">APIs y servicios &rarr; Biblioteca</strong>, busca <strong class="text-white">YouTube Data API v3</strong> y haz clic en <strong class="text-white">Habilitar</strong>.</li>
+                                <li>En <strong class="text-white">Pantalla de consentimiento de OAuth</strong>, selecciona tipo <em>Externo</em> y guarda. En usuarios de prueba agrega tu correo de Google.</li>
+                                <li>En <strong class="text-white">Credenciales &rarr; Crear credenciales &rarr; ID de cliente de OAuth</strong>, elige tipo <strong class="text-white">Aplicación web</strong>.</li>
+                                <li>En <strong class="text-white">URIs de redireccionamiento autorizados</strong>, agrega: <code class="text-red-400 font-mono">http://127.0.0.1:3000/callback</code></li>
+                                <li>Guarda, copia el <strong class="text-white">ID de cliente</strong> y el <strong class="text-white">Secreto de cliente</strong> generados por Google y pégalos abajo.</li>
+                                <li class="pt-1 text-amber-300">💡 <strong>Nota sobre cuotas de YouTube:</strong> Google Cloud otorga 10,000 unidades gratuitas al día. Cada búsqueda de canción consume 100 unidades (~100 canciones/día).</li>
+                            </ol>
+                        </details>
+
+                        <!-- Guide Collapsible: Deezer -->
+                        <details id="guide-deezer" class="group/sub bg-black/40 border border-spotify-border/70 rounded-xl p-3.5 text-xs text-gray-300">
+                            <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
+                                <span class="flex items-center gap-2">
+                                    <span class="text-purple-400 font-bold">🟣 Guía:</span> ¿Cómo obtener tu Deezer App ID y Secret gratis? (1 min)
+                                </span>
+                                <span class="text-gray-500 group-open/sub:rotate-180 transition">▼</span>
+                            </summary>
+                            <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
+                                <li>Entra al <a href="https://developers.deezer.com/myapps" target="_blank" rel="noopener noreferrer" class="text-purple-400 underline font-bold">Deezer Developer Portal</a> e inicia sesión con tu cuenta.</li>
+                                <li>Haz clic en <strong class="text-white">Crear una nueva aplicación</strong> (Create a new application).</li>
+                                <li>En <strong class="text-white">Nombre de la aplicación</strong> pon: <strong>MusicTransferly</strong>.</li>
+                                <li>En <strong class="text-white">Dominio de la aplicación</strong> pon: <code class="text-purple-400 font-mono">127.0.0.1</code></li>
+                                <li>En <strong class="text-white">URL de redireccionamiento</strong> pon: <code class="text-purple-400 font-mono">http://127.0.0.1:3000/callback</code></li>
+                                <li>Guarda los cambios, copia tu <strong class="text-white">ID de la aplicación</strong> (App ID) y la <strong class="text-white">Clave secreta</strong> (Secret Key) y pégalos abajo.</li>
+                            </ol>
+                        </details>
+
+                        <!-- Form: Client IDs -->
+                        <form id="form-config" class="space-y-4">
+                            <div id="field-spotify-client-id">
+                                <label for="input-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                    <span class="text-spotify-green">🟢</span> Spotify Client ID:
+                                </label>
+                                <input type="text" id="input-client-id" placeholder="Ej: 3a7b9c1d8e2f..." class="w-full bg-spotify-dark border border-spotify-border focus:border-spotify-green focus:ring-1 focus:ring-spotify-green rounded-xl px-4 py-2.5 text-white font-mono text-xs placeholder-gray-600 transition outline-none">
+                            </div>
+
+                            <div id="field-google-client-id" class="space-y-3">
+                                <div>
+                                    <label for="input-google-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                        <span class="text-red-500">🔴</span> Google / YouTube Client ID:
+                                    </label>
+                                    <input type="text" id="input-google-client-id" placeholder="Ej: 123456789-abcdef.apps.googleusercontent.com" class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-2.5 text-white font-mono text-xs placeholder-gray-600 transition outline-none">
+                                </div>
+                                <div>
+                                    <label for="input-google-client-secret" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                        <span class="text-red-500">🔴</span> Google Client Secret:
+                                    </label>
+                                    <input type="password" id="input-google-client-secret" placeholder="Ej: GOCSPX-..." class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-2.5 text-white font-mono text-xs placeholder-gray-600 transition outline-none">
+                                </div>
+                            </div>
+
+                            <div id="field-deezer-credentials" class="space-y-3">
+                                <div>
+                                    <label for="input-deezer-app-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                        <span class="text-purple-400">🟣</span> Deezer App ID:
+                                    </label>
+                                    <input type="text" id="input-deezer-app-id" placeholder="Ej: 648392" class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-2.5 text-white font-mono text-xs placeholder-gray-600 transition outline-none">
+                                </div>
+                                <div>
+                                    <label for="input-deezer-secret" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                                        <span class="text-purple-400">🟣</span> Deezer Secret Key:
+                                    </label>
+                                    <input type="password" id="input-deezer-secret" placeholder="Ej: 9f8e7d6c..." class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-2.5 text-white font-mono text-xs placeholder-gray-600 transition outline-none">
+                                </div>
+                            </div>
+
+                            <button type="submit" id="btn-save-custom-keys" class="w-full bg-spotify-card hover:bg-spotify-hovercard border border-spotify-border text-white font-semibold py-2.5 px-4 rounded-xl transition text-xs flex items-center justify-center gap-2 cursor-pointer">
+                                💾 Guardar Claves Personalizadas en Navegador
+                            </button>
+                        </form>
                     </div>
-
-                    <div id="field-google-client-id" class="space-y-3">
-                        <div>
-                            <label for="input-google-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
-                                <span class="text-red-500">🔴</span> Google / YouTube Client ID:
-                            </label>
-                            <input type="text" id="input-google-client-id" placeholder="Ej: 123456789-abcdef.apps.googleusercontent.com" class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
-                        </div>
-                        <div>
-                            <label for="input-google-client-secret" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
-                                <span class="text-red-500">🔴</span> Google Client Secret:
-                            </label>
-                            <input type="password" id="input-google-client-secret" placeholder="Ej: GOCSPX-..." class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
-                            <p class="text-[11px] text-gray-500 mt-1">Requerido por Google Cloud para aplicaciones web. Se conserva localmente en tu navegador sin servidores externos.</p>
-                        </div>
-                    </div>
-
-                    <div id="field-deezer-credentials" class="space-y-3">
-                        <div>
-                            <label for="input-deezer-app-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
-                                <span class="text-purple-400">🟣</span> Deezer App ID:
-                            </label>
-                            <input type="text" id="input-deezer-app-id" placeholder="Ej: 648392" class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
-                        </div>
-                        <div>
-                            <label for="input-deezer-secret" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
-                                <span class="text-purple-400">🟣</span> Deezer Secret Key:
-                            </label>
-                            <input type="password" id="input-deezer-secret" placeholder="Ej: 9f8e7d6c..." class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
-                            <p class="text-[11px] text-gray-500 mt-1">Clave secreta de tu aplicación Deezer. Se conserva únicamente en tu navegador local.</p>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="w-full bg-gradient-to-r from-spotify-green to-emerald-500 hover:from-spotify-hover hover:to-emerald-400 text-black font-bold py-3.5 px-6 rounded-xl transition duration-200 flex items-center justify-center gap-2 text-base shadow-lg shadow-spotify-green/20">
-                        Guardar Configuración y Continuar al Paso 2
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
-                    </button>
-                </form>
+                </details>
             </div>
         </section>
 
@@ -578,12 +598,41 @@
 
     </main>
 
+    <!-- Modal para credencial requerida (1-Click Friendly) -->
+    <div id="modal-credential" role="dialog" aria-modal="true" aria-labelledby="modal-cred-title" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-spotify-card border border-spotify-border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-start justify-between">
+                <div class="flex items-center gap-3">
+                    <span id="modal-cred-icon" class="text-3xl" aria-hidden="true">🟢</span>
+                    <div>
+                        <h3 id="modal-cred-title" class="text-lg font-bold text-white">Conectar con Spotify</h3>
+                        <p id="modal-cred-subtitle" class="text-xs text-gray-400">Configuración rápida única</p>
+                    </div>
+                </div>
+                <button type="button" id="btn-close-cred-modal" aria-label="Cerrar ventana" class="text-gray-400 hover:text-white text-2xl leading-none cursor-pointer">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div id="modal-cred-body" class="space-y-3 text-xs text-gray-300">
+                <!-- Injected dynamically -->
+            </div>
+            <div class="flex items-center justify-end gap-3 pt-2">
+                <button type="button" id="btn-cancel-cred-modal" class="px-4 py-2 text-xs text-gray-400 hover:text-white rounded-lg border border-spotify-border hover:bg-spotify-hovercard transition cursor-pointer">
+                    Cancelar
+                </button>
+                <button type="button" id="btn-submit-cred-modal" class="px-5 py-2 text-xs font-bold bg-spotify-green hover:bg-spotify-hover text-black rounded-lg transition shadow-md cursor-pointer">
+                    Guardar y Conectar
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="border-t border-spotify-border/60 py-6 text-center text-xs text-gray-500">
         <p>MusicTransferly es una herramienta local de código abierto para uso personal. No almacena tus datos en ningún servidor externo.</p>
     </footer>
 
     <!-- App Script -->
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
 </body>
 </html>

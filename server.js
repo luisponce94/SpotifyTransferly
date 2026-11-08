@@ -26,6 +26,29 @@ const PORT = parsedPort;
 const HOST = '127.0.0.1';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+// Carga opcional de configuración local desde config.json o variables de entorno
+let localConfig = {};
+const configPath = path.join(__dirname, 'config.json');
+if (fs.existsSync(configPath)) {
+    try {
+        const rawConfig = fs.readFileSync(configPath, 'utf8');
+        localConfig = JSON.parse(rawConfig);
+        console.log('[Config] Configuración local cargada desde config.json.');
+    } catch (e) {
+        console.warn('[Config] Error al leer config.json:', e.message);
+    }
+}
+
+function getAppConfig() {
+    return {
+        spotifyClientId: process.env.SPOTIFY_CLIENT_ID || localConfig.spotifyClientId || localConfig.spot_client_id || '',
+        googleClientId: process.env.GOOGLE_CLIENT_ID || localConfig.googleClientId || localConfig.google_client_id || '',
+        googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || localConfig.googleClientSecret || localConfig.google_client_secret || '',
+        deezerAppId: process.env.DEEZER_APP_ID || localConfig.deezerAppId || localConfig.deezer_app_id || '',
+        deezerSecret: process.env.DEEZER_SECRET || localConfig.deezerSecret || localConfig.deezer_secret || ''
+    };
+}
+
 const MIME_TYPES = {
     '.html': 'text/html; charset=UTF-8',
     '.js': 'application/javascript; charset=UTF-8',
@@ -74,6 +97,20 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // Endpoint para consultar configuración inicial/preconfigurada
+    if (pathname === '/api/config' && req.method === 'GET') {
+        const cfg = getAppConfig();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=UTF-8' });
+        res.end(JSON.stringify({
+            spotifyClientId: cfg.spotifyClientId,
+            googleClientId: cfg.googleClientId,
+            hasGoogleSecret: Boolean(cfg.googleClientSecret),
+            deezerAppId: cfg.deezerAppId,
+            hasDeezerSecret: Boolean(cfg.deezerSecret)
+        }));
+        return;
+    }
+
     // Backend Proxy for Spotify Token Exchange
     if (pathname === '/api/token' && req.method === 'POST') {
         let body = '';
@@ -102,7 +139,12 @@ const server = http.createServer(async (req, res) => {
             if (destroyed) return;
             try {
                 // Saneamiento de parámetros x-www-form-urlencoded
-                const parsedBody = new URLSearchParams(body).toString();
+                const searchParams = new URLSearchParams(body);
+                const cfg = getAppConfig();
+                if (!searchParams.get('client_id') && cfg.spotifyClientId) {
+                    searchParams.set('client_id', cfg.spotifyClientId);
+                }
+                const parsedBody = searchParams.toString();
                 if (!parsedBody) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Cuerpo de petición vacío o malformado' }));
@@ -170,7 +212,15 @@ const server = http.createServer(async (req, res) => {
             if (destroyed) return;
             try {
                 // Saneamiento de parámetros x-www-form-urlencoded
-                const parsedBody = new URLSearchParams(body).toString();
+                const searchParams = new URLSearchParams(body);
+                const cfg = getAppConfig();
+                if (!searchParams.get('client_id') && cfg.googleClientId) {
+                    searchParams.set('client_id', cfg.googleClientId);
+                }
+                if (!searchParams.get('client_secret') && cfg.googleClientSecret) {
+                    searchParams.set('client_secret', cfg.googleClientSecret);
+                }
+                const parsedBody = searchParams.toString();
                 if (!parsedBody) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Cuerpo de petición vacío o malformado' }));
@@ -237,8 +287,9 @@ const server = http.createServer(async (req, res) => {
             if (destroyed) return;
             try {
                 const params = new URLSearchParams(body);
-                const appId = params.get('app_id');
-                const secret = params.get('secret');
+                const cfg = getAppConfig();
+                const appId = params.get('app_id') || cfg.deezerAppId;
+                const secret = params.get('secret') || cfg.deezerSecret;
                 const code = params.get('code');
 
                 if (!appId || !secret || !code) {

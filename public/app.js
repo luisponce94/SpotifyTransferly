@@ -219,11 +219,163 @@ function base64UrlEncode(buffer) {
         .replace(/=+$/, '');
 }
 
+// ==========================================
+// 1.1 Config Loader & Credential Prompt Modal
+// ==========================================
+async function loadServerConfig() {
+    try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+            const cfg = await res.json();
+            if (cfg.spotifyClientId && !state.clientId) {
+                state.clientId = cfg.spotifyClientId;
+            }
+            if (cfg.googleClientId && !state.googleClientId) {
+                state.googleClientId = cfg.googleClientId;
+            }
+            if (cfg.deezerAppId && !state.deezerAppId) {
+                state.deezerAppId = cfg.deezerAppId;
+            }
+            state.hasGoogleSecret = Boolean(cfg.hasGoogleSecret);
+            state.hasDeezerSecret = Boolean(cfg.hasDeezerSecret);
+
+            const inpSpot = document.getElementById('input-client-id');
+            const inpGoogle = document.getElementById('input-google-client-id');
+            const inpDeezer = document.getElementById('input-deezer-app-id');
+            if (inpSpot && state.clientId) inpSpot.value = state.clientId;
+            if (inpGoogle && state.googleClientId) inpGoogle.value = state.googleClientId;
+            if (inpDeezer && state.deezerAppId) inpDeezer.value = state.deezerAppId;
+        }
+    } catch (e) {
+        console.warn('No se pudo cargar /api/config:', e);
+    }
+}
+
+function promptCredentialModal({ platform, onSave }) {
+    const modal = document.getElementById('modal-credential');
+    const icon = document.getElementById('modal-cred-icon');
+    const title = document.getElementById('modal-cred-title');
+    const subtitle = document.getElementById('modal-cred-subtitle');
+    const body = document.getElementById('modal-cred-body');
+    const btnSubmit = document.getElementById('btn-submit-cred-modal');
+
+    if (!modal || !body || !btnSubmit) return;
+
+    icon.textContent = getPlatformIcon(platform);
+    title.textContent = `Conectar con ${getPlatformName(platform)}`;
+    subtitle.textContent = `Configuración única para tu navegador local o config.json`;
+
+    if (platform === 'spotify') {
+        body.innerHTML = `
+            <p class="text-gray-300">Para conectar tu cuenta de Spotify de forma 100% privada y directa en tu PC, ingresa tu <strong class="text-white">Spotify Client ID</strong> gratuito:</p>
+            <input type="text" id="modal-input-spot" placeholder="Ej: 3a7b9c1d8e2f..." class="w-full bg-spotify-dark border border-spotify-border focus:border-spotify-green focus:ring-1 focus:ring-spotify-green rounded-xl px-4 py-2.5 text-white font-mono text-xs placeholder-gray-600 outline-none" value="${escapeHtml(state.clientId)}">
+            <p class="text-[11px] text-gray-400">¿No tienes uno? Créalo en 1 minuto en <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" class="text-spotify-green underline font-bold">Spotify Developer Dashboard</a> con Redirect URI <code class="text-spotify-green font-mono">${escapeHtml(state.redirectUri)}</code>.</p>
+        `;
+    } else if (platform === 'youtube') {
+        const secPlaceholder = state.hasGoogleSecret ? 'Configurado en servidor (opcional)' : 'Google Client Secret';
+        body.innerHTML = `
+            <p class="text-gray-300">Para conectar con YouTube Music de forma local, ingresa tus credenciales de Google Cloud:</p>
+            <div class="space-y-2">
+                <input type="text" id="modal-input-google-id" placeholder="Google Client ID (.apps.googleusercontent.com)" class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-2 text-white font-mono text-xs placeholder-gray-600 outline-none" value="${escapeHtml(state.googleClientId)}">
+                <input type="password" id="modal-input-google-secret" placeholder="${secPlaceholder}" class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-2 text-white font-mono text-xs placeholder-gray-600 outline-none" value="${escapeHtml(state.googleClientSecret)}">
+            </div>
+            <p class="text-[11px] text-gray-400">Creado en Google Cloud Console para aplicaciones web con Redirect URI <code class="text-red-400 font-mono">${escapeHtml(state.redirectUri)}</code>.</p>
+        `;
+    } else if (platform === 'deezer') {
+        const dzSecPlaceholder = state.hasDeezerSecret ? 'Configurado en servidor (opcional)' : 'Deezer Secret Key';
+        body.innerHTML = `
+            <p class="text-gray-300">Para conectar con Deezer de forma local, ingresa tu App ID:</p>
+            <div class="space-y-2">
+                <input type="text" id="modal-input-deezer-id" placeholder="Deezer App ID (números)" class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-2 text-white font-mono text-xs placeholder-gray-600 outline-none" value="${escapeHtml(state.deezerAppId)}">
+                <input type="password" id="modal-input-deezer-secret" placeholder="${dzSecPlaceholder}" class="w-full bg-spotify-dark border border-spotify-border focus:border-purple-500 focus:ring-1 focus:ring-purple-500 rounded-xl px-4 py-2 text-white font-mono text-xs placeholder-gray-600 outline-none" value="${escapeHtml(state.deezerSecret)}">
+            </div>
+            <p class="text-[11px] text-gray-400">Creado en Deezer Developer Portal con Redirect URI <code class="text-purple-400 font-mono">${escapeHtml(state.redirectUri)}</code>.</p>
+        `;
+    }
+
+    modal.classList.remove('hidden');
+
+    btnSubmit.onclick = () => {
+        if (platform === 'spotify') {
+            const val = document.getElementById('modal-input-spot')?.value.trim();
+            if (!val) {
+                alert('Por favor ingresa un Spotify Client ID.');
+                return;
+            }
+            state.clientId = val;
+            localStorage.setItem('spot_client_id', val);
+            const inp = document.getElementById('input-client-id');
+            if (inp) inp.value = val;
+        } else if (platform === 'youtube') {
+            const idVal = document.getElementById('modal-input-google-id')?.value.trim();
+            const secVal = document.getElementById('modal-input-google-secret')?.value.trim();
+            if (!idVal) {
+                alert('Por favor ingresa tu Google Client ID.');
+                return;
+            }
+            state.googleClientId = idVal;
+            localStorage.setItem('google_client_id', idVal);
+            if (secVal) {
+                state.googleClientSecret = secVal;
+                localStorage.setItem('google_client_secret', secVal);
+            }
+            const inpId = document.getElementById('input-google-client-id');
+            const inpSec = document.getElementById('input-google-client-secret');
+            if (inpId) inpId.value = idVal;
+            if (inpSec) inpSec.value = secVal || '';
+        } else if (platform === 'deezer') {
+            const dzId = document.getElementById('modal-input-deezer-id')?.value.trim();
+            const dzSec = document.getElementById('modal-input-deezer-secret')?.value.trim();
+            if (!dzId) {
+                alert('Por favor ingresa tu Deezer App ID.');
+                return;
+            }
+            if (!dzSec && !state.hasDeezerSecret) {
+                alert('Por favor ingresa tu Deezer Secret Key.');
+                return;
+            }
+            state.deezerAppId = dzId;
+            localStorage.setItem('deezer_app_id', dzId);
+            if (dzSec) {
+                state.deezerSecret = dzSec;
+                localStorage.setItem('deezer_secret', dzSec);
+            }
+            const inpDzId = document.getElementById('input-deezer-app-id');
+            const inpDzSec = document.getElementById('input-deezer-secret');
+            if (inpDzId) inpDzId.value = dzId;
+            if (inpDzSec && dzSec) inpDzSec.value = dzSec;
+        }
+
+        modal.classList.add('hidden');
+        if (typeof onSave === 'function') onSave();
+    };
+}
+
+// Cierre del modal de credenciales
+document.getElementById('btn-close-cred-modal')?.addEventListener('click', () => {
+    document.getElementById('modal-credential')?.classList.add('hidden');
+});
+document.getElementById('btn-cancel-cred-modal')?.addEventListener('click', () => {
+    document.getElementById('modal-credential')?.classList.add('hidden');
+});
+
+// Cierre accesible con tecla Escape
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('modal-credential');
+        if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+        }
+    }
+});
+
 // Iniciar autorización Spotify
 async function initiateSpotifyAuth(mode) {
     if (!state.clientId) {
-        alert('Por favor configura primero tu Spotify Client ID.');
-        setStep(1);
+        promptCredentialModal({
+            platform: 'spotify',
+            onSave: () => initiateSpotifyAuth(mode)
+        });
         return;
     }
 
@@ -267,8 +419,10 @@ async function initiateSpotifyAuth(mode) {
 // Iniciar autorización Google / YouTube
 async function initiateGoogleAuth(mode) {
     if (!state.googleClientId) {
-        alert('Por favor configura primero tu Google / YouTube Client ID.');
-        setStep(1);
+        promptCredentialModal({
+            platform: 'youtube',
+            onSave: () => initiateGoogleAuth(mode)
+        });
         return;
     }
 
@@ -306,9 +460,11 @@ async function initiateGoogleAuth(mode) {
 
 // Iniciar autorización Deezer
 function initiateDeezerAuth(mode) {
-    if (!state.deezerAppId || !state.deezerSecret) {
-        alert('Por favor configura primero tu Deezer App ID y Secret Key.');
-        setStep(1);
+    if (!state.deezerAppId || (!state.deezerSecret && !state.hasDeezerSecret)) {
+        promptCredentialModal({
+            platform: 'deezer',
+            onSave: () => initiateDeezerAuth(mode)
+        });
         return;
     }
 
@@ -388,9 +544,11 @@ async function exchangeGoogleCode(code, verifier) {
 async function exchangeDeezerCode(code) {
     const payload = new URLSearchParams({
         app_id: state.deezerAppId,
-        secret: state.deezerSecret,
         code: code
     });
+    if (state.deezerSecret) {
+        payload.set('secret', state.deezerSecret);
+    }
 
     const res = await fetch('/api/deezer/token', {
         method: 'POST',
@@ -1025,7 +1183,9 @@ function updateModeUI() {
     // Actualizar botones de origen
     document.querySelectorAll('#source-platform-selector .plat-src-btn').forEach(btn => {
         const plat = btn.getAttribute('data-platform');
-        if (plat === srcPlat) {
+        const isSelected = (plat === srcPlat);
+        btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        if (isSelected) {
             const borderCol = plat === 'youtube' ? 'border-red-500 bg-red-500/10' : (plat === 'deezer' ? 'border-purple-500 bg-purple-500/10' : 'border-spotify-green bg-spotify-green/10');
             btn.className = `plat-src-btn p-3 rounded-xl border-2 ${borderCol} text-center transition flex flex-col items-center justify-center gap-1.5 shadow-md`;
         } else {
@@ -1036,7 +1196,9 @@ function updateModeUI() {
     // Actualizar botones de destino
     document.querySelectorAll('#dest-platform-selector .plat-dst-btn').forEach(btn => {
         const plat = btn.getAttribute('data-platform');
-        if (plat === dstPlat) {
+        const isSelected = (plat === dstPlat);
+        btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        if (isSelected) {
             const borderCol = plat === 'youtube' ? 'border-red-500 bg-red-500/10' : (plat === 'deezer' ? 'border-purple-500 bg-purple-500/10' : 'border-spotify-green bg-spotify-green/10');
             btn.className = `plat-dst-btn p-3 rounded-xl border-2 ${borderCol} text-center transition flex flex-col items-center justify-center gap-1.5 shadow-md`;
         } else {
@@ -1210,29 +1372,25 @@ if (state.deezerAppId) document.getElementById('input-deezer-app-id').value = st
 if (state.deezerSecret) document.getElementById('input-deezer-secret').value = state.deezerSecret;
 updateModeUI();
 
+// Botón principal de Continuar en Paso 1 (1-Click)
+const btnProceed = document.getElementById('btn-proceed-step-1');
+if (btnProceed) {
+    btnProceed.addEventListener('click', () => {
+        localStorage.setItem('source_platform', state.sourcePlatform);
+        localStorage.setItem('dest_platform', state.destPlatform);
+        setStep(2);
+    });
+}
+
+// Guardado de claves personalizadas desde el panel opcional
 document.getElementById('form-config').addEventListener('submit', (e) => {
     e.preventDefault();
-    const srcPlat = getSourcePlatform();
-    const dstPlat = getDestPlatform();
 
     const spotId = document.getElementById('input-client-id').value.trim();
     const googleId = document.getElementById('input-google-client-id').value.trim();
     const googleSec = document.getElementById('input-google-client-secret')?.value.trim() || '';
     const deezerId = document.getElementById('input-deezer-app-id')?.value.trim() || '';
     const deezerSec = document.getElementById('input-deezer-secret')?.value.trim() || '';
-
-    if ((srcPlat === 'spotify' || dstPlat === 'spotify') && !spotId) {
-        alert('Por favor ingresa tu Spotify Client ID.');
-        return;
-    }
-    if ((srcPlat === 'youtube' || dstPlat === 'youtube') && !googleId) {
-        alert('Por favor ingresa tu Google / YouTube Client ID.');
-        return;
-    }
-    if ((srcPlat === 'deezer' || dstPlat === 'deezer') && (!deezerId || !deezerSec)) {
-        alert('Por favor ingresa tu Deezer App ID y Secret Key.');
-        return;
-    }
 
     if (spotId) {
         state.clientId = spotId;
@@ -1255,7 +1413,12 @@ document.getElementById('form-config').addEventListener('submit', (e) => {
         localStorage.setItem('deezer_secret', deezerSec);
     }
 
-    setStep(2);
+    const btn = document.getElementById('btn-save-custom-keys');
+    if (btn) {
+        const oldText = btn.textContent;
+        btn.textContent = '✔ Claves guardadas en navegador';
+        setTimeout(() => { btn.textContent = oldText; }, 2500);
+    }
 });
 
 // ==========================================
@@ -2241,6 +2404,8 @@ document.getElementById('btn-reset-app').addEventListener('click', () => {
 // 10. Init & OAuth Callback Handling
 // ==========================================
 async function init() {
+    await loadServerConfig();
+
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
     const authError = urlParams.get('error') || urlParams.get('error_reason');
@@ -2361,16 +2526,8 @@ async function init() {
         }
     }
 
-    // Default routing
-    const srcPlat = getSourcePlatform();
-    const dstPlat = getDestPlatform();
-    const needsSpot = srcPlat === 'spotify' || dstPlat === 'spotify';
-    const needsGoogle = srcPlat === 'youtube' || dstPlat === 'youtube';
-    const needsDeezer = srcPlat === 'deezer' || dstPlat === 'deezer';
-
-    if ((needsSpot && !state.clientId) || (needsGoogle && !state.googleClientId) || (needsDeezer && (!state.deezerAppId || !state.deezerSecret))) {
-        setStep(1);
-    } else if (getDestToken() && state.playlists.length > 0) {
+    // Enrutamiento inicial de vistas
+    if (getDestToken() && state.playlists.length > 0) {
         setStep(3);
         updateDestinationSummary();
         checkDestinationProfile();
@@ -2388,7 +2545,7 @@ async function init() {
             loadSourceProfileAndPlaylists();
         }
     } else {
-        setStep(2);
+        setStep(1);
     }
 }
 

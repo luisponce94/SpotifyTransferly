@@ -1,4 +1,6 @@
 # Credenciales, configuración local y certificados
+config.json
+!config.example.json
 .env
 .env.*
 !.env.example
