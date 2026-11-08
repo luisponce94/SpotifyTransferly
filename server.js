@@ -280,7 +280,7 @@ const server = http.createServer(async (req, res) => {
                 res.writeHead(deezerRes.status, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(resultJson));
             } catch (err) {
-                console.error('[Deezer Token Proxy Error]:', err);
+                console.error('[Deezer Token Proxy Error]:', err.message);
                 if (!res.headersSent) {
                     res.writeHead(502, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
@@ -293,10 +293,26 @@ const server = http.createServer(async (req, res) => {
     // Backend Proxy for Deezer REST API (para sortear restricciones de CORS de Deezer)
     if (pathname === '/api/deezer/proxy') {
         const targetPath = parsedUrl.searchParams.get('path') || '';
-        // Validación estricta anti-SSRF: debe iniciar con / y no contener .. o esquemas
-        if (!targetPath.startsWith('/') || targetPath.includes('..') || targetPath.includes('://')) {
+
+        // Validación estricta anti-SSRF y anti-bypass de host
+        if (!targetPath.startsWith('/') || targetPath.startsWith('//') || targetPath.startsWith('/\\')) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'invalid_path', error_description: 'Ruta de API Deezer no permitida' }));
+            res.end(JSON.stringify({ error: 'invalid_path', error_description: 'Ruta no permitida' }));
+            return;
+        }
+
+        let resolvedUrl;
+        try {
+            resolvedUrl = new URL(targetPath, 'https://api.deezer.com');
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'malformed_url' }));
+            return;
+        }
+
+        if (resolvedUrl.origin !== 'https://api.deezer.com' || resolvedUrl.pathname.includes('/../')) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid_origin', error_description: 'Destino no autorizado' }));
             return;
         }
 
@@ -325,13 +341,13 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             if (destroyed) return;
             try {
-                const deezerApiUrl = `https://api.deezer.com${targetPath}`;
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 15000);
 
                 const fetchOptions = {
                     method: req.method === 'POST' ? 'POST' : 'GET',
-                    signal: controller.signal
+                    signal: controller.signal,
+                    redirect: 'error'
                 };
 
                 if (req.method === 'POST' && body) {
@@ -339,14 +355,14 @@ const server = http.createServer(async (req, res) => {
                     fetchOptions.body = body;
                 }
 
-                const apiRes = await fetch(deezerApiUrl, fetchOptions);
+                const apiRes = await fetch(resolvedUrl.href, fetchOptions);
                 clearTimeout(timeoutId);
 
                 const data = await apiRes.text();
                 res.writeHead(apiRes.status, { 'Content-Type': 'application/json' });
                 res.end(data);
             } catch (err) {
-                console.error('[Deezer API Proxy Error]:', err);
+                console.error('[Deezer API Proxy Error]:', err.message);
                 if (!res.headersSent) {
                     res.writeHead(502, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ error: 'Deezer API proxy request failed', details: err.message }));

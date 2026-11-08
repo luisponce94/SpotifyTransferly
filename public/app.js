@@ -878,7 +878,11 @@ async function addTracksToDeezerPlaylist(token, playlistId, trackIds) {
     return data;
 }
 
-async function searchDeezerTrack(token, title, artist) {
+async function searchDeezerTrack(token, rawTitle, defaultArtist = '') {
+    const parsed = cleanYouTubeTitle(rawTitle);
+    const title = parsed.title || rawTitle;
+    const artist = parsed.artist || defaultArtist;
+
     const cleanT = cleanTitleForSearch(title);
     const cleanA = cleanTitleForSearch(artist);
 
@@ -936,7 +940,15 @@ function cleanTitleForSearch(title) {
         .trim();
 }
 
-async function searchSpotifyTrack(token, rawTitle, defaultArtist = '') {
+async function searchSpotifyTrack(token, rawTitle, defaultArtist = '', isrc = '') {
+    // 0. Búsqueda exacta instantánea por código universal ISRC (si proviene de Deezer u otro catálogo)
+    if (isrc) {
+        try {
+            const resIsrc = await spotifyApi(token, `/search?type=track&limit=1&q=isrc:${encodeURIComponent(isrc)}`);
+            if (resIsrc?.tracks?.items?.[0]?.uri) return resIsrc.tracks.items[0].uri;
+        } catch (e) {}
+    }
+
     const parsed = cleanYouTubeTitle(rawTitle);
     const title = parsed.title || rawTitle;
     const artist = parsed.artist || defaultArtist;
@@ -1280,6 +1292,27 @@ async function loadSourceProfileAndPlaylists() {
 
             const dzPlaylists = await loadDeezerPlaylists(token);
             state.playlists = [];
+
+            // Añadir canciones favoritas de Deezer como primera lista
+            try {
+                const favRes = await deezerApi(token, '/user/me/tracks?limit=1');
+                if (favRes && favRes.total > 0) {
+                    state.playlists.push({
+                        id: '__LIKED_SONGS__',
+                        name: '❤️ Canciones favoritas (Deezer Favorites)',
+                        description: 'Tus canciones favoritas guardadas en tu biblioteca de Deezer',
+                        tracksCount: favRes.total,
+                        imageUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23a238ff"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
+                        platform: 'deezer',
+                        isLikedSongs: true,
+                        isOwned: true,
+                        selected: true,
+                        tracks: []
+                    });
+                }
+            } catch (e) {
+                console.warn('No se pudieron obtener favoritos de Deezer:', e);
+            }
 
             dzPlaylists.forEach(pl => {
                 state.playlists.push({
@@ -2070,7 +2103,7 @@ async function executeTransfer() {
                     for (let t = 0; t < tracks.length; t++) {
                         const tr = tracks[t];
                         currentTask.textContent = `Buscando en Spotify: ${tr.name}`;
-                        const uri = await searchSpotifyTrack(dstToken, tr.name, tr.artist);
+                        const uri = await searchSpotifyTrack(dstToken, tr.name, tr.artist, tr.isrc);
                         if (uri) {
                             trackUris.push(uri);
                         } else {
@@ -2335,7 +2368,7 @@ async function init() {
     const needsGoogle = srcPlat === 'youtube' || dstPlat === 'youtube';
     const needsDeezer = srcPlat === 'deezer' || dstPlat === 'deezer';
 
-    if ((needsSpot && !state.clientId) || (needsGoogle && !state.googleClientId) || (needsDeezer && !state.deezerAppId)) {
+    if ((needsSpot && !state.clientId) || (needsGoogle && !state.googleClientId) || (needsDeezer && (!state.deezerAppId || !state.deezerSecret))) {
         setStep(1);
     } else if (getDestToken() && state.playlists.length > 0) {
         setStep(3);
