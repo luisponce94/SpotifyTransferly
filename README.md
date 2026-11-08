@@ -1,85 +1,86 @@
-# SpotifyTransferly
+# MusicTransferly (SpotifyTransferly)
 
-Aplicación local en español para trasladar playlists y canciones guardadas entre dos cuentas de Spotify. Está hecha con JavaScript, HTML y CSS, con un servidor HTTP de Node.js sin dependencias de ejecución.
+Aplicación local y de código abierto para transferir y migrar playlists y canciones de forma **bidireccional** entre **Spotify** y **YouTube Music** (así como entre dos cuentas de Spotify o dos cuentas de YouTube). Desarrollada con JavaScript, HTML5 y Tailwind CSS, con un servidor HTTP ligero en Node.js sin dependencias externas (`zero dependencies`).
 
-## Capturas
+---
 
-Las capturas se tomaron en un navegador aislado. No contienen cuentas, correos, claves, tokens ni bibliotecas reales. Las listas de demostración son ficticias.
+## 🚀 Capacidades y Rutas Soportadas
+
+1. 🟢 **Spotify ➔ 🔴 YouTube Music**: Lee tus listas de Spotify (incluyendo tus Me Gusta), busca los videos musicales en YouTube y crea las listas correspondientes en tu biblioteca de YouTube Music.
+2. 🔴 **YouTube Music ➔ 🟢 Spotify**: Lee tus playlists de YouTube, normaliza y limpia los títulos ruidosos (eliminando etiquetas como `[Official Video]`, `(Audio)`, `HD`, `ft.`, etc.) y localiza las canciones en el catálogo de Spotify.
+3. 🟢 **Spotify ➔ 🟢 Spotify**: Clona playlists completas y canciones favoritas entre dos cuentas independientes de Spotify.
+4. 🔴 **YouTube Music ➔ 🔴 YouTube Music**: Clona playlists y videos musicales entre dos cuentas de Google/YouTube.
+5. 💾 **Respaldo y Restauración Offline en JSON**: Exporta todas tus playlists y canciones a un archivo `.json` para guardarlas en tu equipo o restaurarlas en cualquier momento sin necesitar acceso simultáneo a la cuenta origen.
+
+---
+
+## 📸 Capturas de Pantalla
+
+Las capturas fueron tomadas en un entorno local aislado sin datos personales ni tokens reales:
 
 ![Configuración inicial](docs/screenshots/01-configuracion.png)
 ![Conectar cuenta de origen](docs/screenshots/02-origen.png)
 ![Selección con datos ficticios](docs/screenshots/03-seleccion-demo.png)
 ![Cuenta de destino con datos ficticios](docs/screenshots/04-destino-demo.png)
 
-## Ejecutar
+---
 
-Requiere Node.js 22 o superior y acceso a Internet. No necesita `npm install`.
+## 💻 Requisitos y Ejecución Local
+
+- **Node.js 20+ o 22+** y conexión a Internet.
+- **Sin instalación previa**: No requiere `npm install` ni librerías de terceros en tiempo de ejecución.
 
 ```sh
 npm start
 ```
 
-Abre `http://127.0.0.1:3000`. En Windows también puedes ejecutar `iniciar.bat` o `start.bat`. Para detener el servidor, presiona Ctrl+C en la terminal.
+O en Windows, haz doble clic en `iniciar.bat` o `start.bat`.
+Abre tu navegador en `http://127.0.0.1:3000`.
 
-El servidor escucha exclusivamente en `127.0.0.1`. No debe desplegarse como servicio público. `OPEN_BROWSER=0` desactiva la apertura automática del navegador. Aunque el servidor admite `PORT`, el cliente tiene configurado el callback del puerto 3000: para cambiar de puerto debes actualizar también `state.redirectUri` en `public/app.js` y el registro de tu app de Spotify.
+---
 
-## Configuración y uso
+## 🔑 Configuración de Credenciales (100% Gratis)
 
-1. Crea tu propia aplicación en el [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) y registra exactamente `http://127.0.0.1:3000/callback` como redirect URI. Usa Web API.
-2. Introduce tu propio Client ID en la interfaz. No necesita Client Secret. No publiques tu configuración personal en el repositorio.
-3. Conecta la cuenta de origen y selecciona las listas que quieras trasladar. Puedes buscar, seleccionar todas o exportar un respaldo JSON.
-4. Conecta la cuenta de destino. Comprueba que sea la cuenta correcta; Spotify puede recordar la sesión anterior.
-5. Elige la privacidad de las listas nuevas y si quieres guardar los favoritos en la biblioteca. Inicia la transferencia y revisa el registro y los enlaces finales.
+La aplicación utiliza el flujo estándar y seguro **OAuth 2.0 con PKCE (Proof Key for Code Exchange)**. **No se utiliza ningún Client Secret**.
 
-Los permisos y las restricciones dependen de Spotify y del modo de tu aplicación. Ante un 403, revisa el acceso de ambas cuentas en tu Developer Dashboard. La aplicación no impone un cupo propio, pero sí está sujeta a disponibilidad, permisos y límites de Spotify.
+### 1. Para Spotify:
+1. Accede a [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) e inicia sesión con tu cuenta de Spotify.
+2. Haz clic en **Create app**, dale un nombre (ej. `MusicTransferly`) y selecciona **Web API**.
+3. En **Redirect URIs**, ingresa exactamente: `http://127.0.0.1:3000/callback`
+4. Guarda y copia tu **Client ID** para pegarlo en la aplicación.
+5. *(Modo Desarrollo)*: En **Settings > Users and Access**, agrega los correos de las cuentas de Spotify que utilizarás.
 
-## Cómo funciona
+### 2. Para YouTube Music (Google Cloud):
+1. Accede a [Google Cloud Console](https://console.cloud.google.com) y crea un proyecto gratuito.
+2. En **APIs y servicios > Biblioteca**, busca **YouTube Data API v3** y actívala (**Habilitar**).
+3. En **Pantalla de consentimiento de OAuth**, selecciona tipo *Externo* y agrega tu correo en *Usuarios de prueba*.
+4. En **Credenciales > Crear credenciales > ID de cliente de OAuth**, selecciona tipo **Aplicación web**.
+5. En **URIs de redireccionamiento autorizados**, añade exactamente: `http://127.0.0.1:3000/callback`
+6. Guarda y copia el **ID de cliente** generado (termina en `.apps.googleusercontent.com`).
 
-```text
-Navegador → autorización OAuth PKCE en Spotify
-          → POST /api/token al servidor local
-Servidor  → intercambio del código con accounts.spotify.com
-Navegador → llamadas autenticadas a api.spotify.com
-          → selección, lectura paginada y escritura por lotes
-```
+---
 
-- **Autenticación:** genera un verificador aleatorio, su desafío SHA-256 y un `state` para validar el retorno OAuth. El servidor intercambia el código con Spotify; nunca requiere la contraseña ni un Client Secret.
-- **Origen:** consulta el perfil, las playlists y el total de favoritos. Conserva selección y datos de sesión en el almacenamiento local del navegador.
-- **Playlists propias:** lee las pistas por páginas, omite archivos locales y crea una lista nueva en el destino. Añade canciones en lotes de hasta 100.
-- **Listas de terceros:** las guarda/sigue en la biblioteca destino; no crea una copia independiente. Si Spotify rechaza la lectura de pistas con 403, también intenta guardarlas directamente.
-- **Favoritos:** puede guardarlos con corazón en lotes de 40 y también crea la playlist “Mis Me Gusta (Transferidos)”.
-- **Límites:** ante HTTP 429 espera según `Retry-After`. Algunos endpoints tienen alternativas de compatibilidad. Los permisos efectivos los decide Spotify.
-- **Resultados:** muestra progreso, mensajes y enlaces a las listas creadas o guardadas. Revisa el registro: una pantalla final no garantiza que cada operación haya tenido éxito.
+## 🔒 Privacidad y Seguridad Local
 
-## Archivos
+- **Zero External Server**: Todos los intercambios de credenciales ocurren entre tu navegador y los servidores oficiales de Spotify / Google a través del proxy local en `127.0.0.1:3000`.
+- **Aislamiento de Tokens en `sessionStorage`**: Los tokens de acceso y actualización (`refresh_token`) se guardan temporalmente en `sessionStorage`, lo que garantiza que se eliminan por completo al cerrar la pestaña o el navegador.
+- **Sin Client Secret**: La autenticación usa PKCE con desafíos criptográficos SHA-256 en tiempo de ejecución.
+- **Protección DOM XSS & CSP**: Validación estricta de esquemas de URL, escape de entidades HTML y cabeceras estrictas de Content Security Policy (CSP).
 
-| Archivo | Responsabilidad |
+---
+
+## 📁 Estructura del Proyecto
+
+| Archivo / Carpeta | Descripción |
 | --- | --- |
-| `server.js` | Archivos estáticos, callback SPA y proxy de intercambio OAuth |
-| `public/app.js` | PKCE, estado, navegación, API de Spotify, respaldos y transferencia |
-| `public/index.html` | Configuración, origen, destino, progreso y resultados |
-| `public/style.css` | Detalles visuales y animaciones |
-| `iniciar.bat`, `start.bat` | Localizar Node.js y arrancar en Windows |
-| `docs/screenshots/` | Capturas revisadas con datos ficticios |
+| `server.js` | Servidor HTTP nativo Node.js, gestor de archivos estáticos y proxies OAuth seguros para Spotify y Google |
+| `public/app.js` | Lógica de cliente: PKCE, llamadas a las APIs de Spotify y YouTube, limpieza de títulos y motor de transferencia |
+| `public/index.html` | Interfaz interactiva SPA con selector de ruta en 4 pasos y consola en vivo |
+| `public/style.css` | Estilos de scrollbar y animaciones de interfaz |
+| `iniciar.bat`, `start.bat` | Lanzadores automáticos para Windows |
 
-## Privacidad y seguridad
+---
 
-- El código versionado no necesita credenciales. `.gitignore` excluye `.env`, claves, certificados, tokens, registros y respaldos exportados habituales.
-- El proxy no imprime respuestas OAuth, limita el tamaño de la petición y rechaza hosts/orígenes ajenos al servidor local. El token Bearer solo se envía al dominio de la API de Spotify.
-- Los tokens de sesión se guardan en **sessionStorage** (se destruyen automáticamente al cerrar la pestaña o ventana). Usa **Reiniciar sesión** para borrar todos los datos locales; esto no revoca por sí solo la autorización en Spotify.
-- El código OAuth se retira de la URL al procesarlo. El verificador PKCE se elimina después de recuperarlo. Los tokens se renuevan automáticamente mediante el `refresh_token` si caducan durante una transferencia prolongada.
-- Los respaldos JSON contienen nombres, descripciones e identificadores de listas y canciones. Son datos personales aunque no incluyan tokens. Consérvalos fuera de Git.
-- Hay conexiones externas a Spotify y al CDN de Tailwind CSS. La interfaz necesita Internet; “local” describe dónde se ejecuta la aplicación, no ausencia de tráfico externo.
-- Los nombres externos se escapan antes de insertarlos en plantillas HTML. No cargues respaldos de procedencia desconocida.
+## 📄 Licencia
 
-## Limitaciones conocidas
-
-La transferencia no es transaccional ni tiene reanudación: repetirla puede duplicar listas. Los reintentos de escritura y alternativas de endpoints también pueden duplicar operaciones si Spotify procesa una solicitud antes de fallar la respuesta. No se copian archivos de audio, portadas ni todos los metadatos.
-
-La importación JSON carga las listas y transfiere directamente sus pistas guardadas a la cuenta de destino sin requerir conexión a la cuenta de origen. Si se repite una transferencia, pueden crearse listas duplicadas en la cuenta destino. No se copian archivos de audio ni portadas personalizadas.
-
-## Verificación
-
-Se comprobaron sintaxis de ambos archivos JavaScript, arranque local, navegación de configuración a selección y destino, escape de nombres HTML, restricciones de host/origen y revisión de secretos de los archivos preparados. Las capturas no requieren iniciar sesión.
-
-No se ejecutó una transferencia real: requiere autorización de dos cuentas y modifica la biblioteca destino. Las restricciones y cambios de la API de Spotify pueden requerir ajustes futuros.
+Código abierto bajo licencia MIT. Para uso personal y educativo.

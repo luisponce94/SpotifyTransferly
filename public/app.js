@@ -1,67 +1,96 @@
 /**
  * ====================================================================
- * SpotifyTransferly - Motor de Migración de Playlists entre Cuentas
+ * MusicTransferly - Motor de Migración Bidireccional
+ * Spotify ⇄ YouTube Music (y Spotify ➔ Spotify / YouTube ➔ YouTube)
  * ====================================================================
  * ¿CÓMO FUNCIONA LA TRANSFERENCIA EXACTAMENTE?
  * 
  * 1. AUTENTICACIÓN PKCE (OAuth 2.0 sin Client Secret):
- *    - La app genera un `code_verifier` aleatorio de 64 caracteres y obtiene
- *      su hash SHA-256 (`code_challenge`).
- *    - Spotify autoriza al usuario y devuelve un código temporal que se intercambia
- *      vía el proxy local (/api/token) por un `access_token` y `refresh_token`.
+ *    - Ambas plataformas (Spotify y Google/YouTube) son autorizadas mediante
+ *      el estándar seguro Proof Key for Code Exchange (PKCE, RFC 7636).
+ *    - Se genera un `code_verifier` criptográfico aleatorio y su hash SHA-256 (`code_challenge`).
+ *    - Los tokens resultantes se almacenan exclusivamente en `sessionStorage` del navegador
+ *      (se destruyen automáticamente al cerrar la pestaña), sin servidores externos.
  * 
- * 2. GESTIÓN DUAL DE CUENTAS (Origen vs Destino):
- *    - Cuenta Origen: Se obtienen las playlists, me gusta y sus canciones (URIs).
- *    - Cuenta Destino: Se crea una nueva playlist o se guardan las canciones.
- *    - Ambos tokens se mantienen aislados en `sessionStorage` para operar en paralelo.
+ * 2. GESTIÓN MULTI-PLATAFORMA (4 Rutas Posibles):
+ *    - 🟢 Spotify ➔ 🔴 YouTube Music: Lee URIs y metadatos, busca videos oficiales en YouTube
+ *      y crea las playlists en YouTube Music.
+ *    - 🔴 YouTube Music ➔ 🟢 Spotify: Lee listas de YouTube, normaliza y limpia los títulos
+ *      (eliminando [Official Video], HD, etc.) y busca las canciones en Spotify por ISMN/título/artista.
+ *    - 🟢 Spotify ➔ 🟢 Spotify: Clonado directo de playlists entre cuentas de Spotify.
+ *    - 🔴 YouTube ➔ 🔴 YouTube: Clonado directo de playlists entre cuentas de Google/YouTube.
  * 
- * 3. MOTOR DE TRANSFERENCIA (Dual-Route):
- *    - Playlists Propias: Lee las canciones en lotes de 100 de origen, crea la lista
- *      en destino y añade las canciones por bloques para no saturar la API.
- *    - Playlists Públicas/Terceros: Se guardan directamente en la biblioteca del destino
- *      usando followers o el endpoint de biblioteca.
- *    - Canciones que te gustan (Liked Songs): Se transfieren marcándolas con corazón ❤️
- *      usando PUT /v1/me/tracks en lotes de 50.
- *    - Respaldo JSON: Permite exportar/importar listas completas sin necesidad de
- *      tener acceso simultáneo a la cuenta de origen.
- *    - Resiliencia: Control de HTTP 429 (Retry-After) y renovación automática ante 401.
+ * 3. CONTROL DE RENDIMIENTO Y LÍMITES DE API:
+ *    - Manejo automático de HTTP 429 con `Retry-After`.
+ *    - Renovación transparente de tokens expirados (HTTP 401) con `refresh_token`.
+ *    - Lotes controlados y pausas para respetar las cuotas diarias de la YouTube Data API.
  * ====================================================================
  */
 
-// SpotTransfer - Client-side App Logic
-
-// Enforce 127.0.0.1 to maintain identical localStorage across redirects
+// Enforce 127.0.0.1 to maintain identical localStorage/sessionStorage across redirects
 if (window.location.hostname === 'localhost') {
     window.location.replace(window.location.href.replace('localhost', '127.0.0.1'));
 }
 
-// Estado de la interfaz. Los tokens sensibles se guardan en sessionStorage (se destruyen al cerrar la pestaña).
 // Global State
 const currentPort = window.location.port ? `:${window.location.port}` : '';
 const state = {
     step: 1,
+    transferMode: localStorage.getItem('transfer_mode') || 'spotify-to-yt',
     clientId: localStorage.getItem('spot_client_id') || '',
+    googleClientId: localStorage.getItem('google_client_id') || '',
     redirectUri: `${window.location.protocol}//127.0.0.1${currentPort}/callback`,
-    sourceToken: sessionStorage.getItem('spot_source_token') || localStorage.getItem('spot_source_token') || '',
-    sourceRefreshToken: sessionStorage.getItem('spot_source_refresh_token') || localStorage.getItem('spot_source_refresh_token') || '',
-    sourceProfile: JSON.parse(sessionStorage.getItem('spot_source_profile') || localStorage.getItem('spot_source_profile') || 'null'),
-    destToken: sessionStorage.getItem('spot_dest_token') || localStorage.getItem('spot_dest_token') || '',
-    destRefreshToken: sessionStorage.getItem('spot_dest_refresh_token') || localStorage.getItem('spot_dest_refresh_token') || '',
-    destProfile: JSON.parse(sessionStorage.getItem('spot_dest_profile') || localStorage.getItem('spot_dest_profile') || 'null'),
+
+    // Spotify Tokens & Profiles
+    sourceToken: sessionStorage.getItem('spot_source_token') || '',
+    sourceRefreshToken: sessionStorage.getItem('spot_source_refresh_token') || '',
+    sourceProfile: JSON.parse(sessionStorage.getItem('spot_source_profile') || 'null'),
+    destToken: sessionStorage.getItem('spot_dest_token') || '',
+    destRefreshToken: sessionStorage.getItem('spot_dest_refresh_token') || '',
+    destProfile: JSON.parse(sessionStorage.getItem('spot_dest_profile') || 'null'),
+
+    // YouTube / Google Tokens & Profiles
+    ytSourceToken: sessionStorage.getItem('yt_source_token') || '',
+    ytSourceRefreshToken: sessionStorage.getItem('yt_source_refresh_token') || '',
+    ytSourceProfile: JSON.parse(sessionStorage.getItem('yt_source_profile') || 'null'),
+    ytDestToken: sessionStorage.getItem('yt_dest_token') || '',
+    ytDestRefreshToken: sessionStorage.getItem('yt_dest_refresh_token') || '',
+    ytDestProfile: JSON.parse(sessionStorage.getItem('yt_dest_profile') || 'null'),
+
+    // Playlists & Transfer state
     playlists: JSON.parse(localStorage.getItem('spot_playlists') || '[]'),
     likedSongsTotal: parseInt(localStorage.getItem('spot_liked_total') || '0', 10),
     isTransferring: false
 };
 
-// Migrar tokens existentes de localStorage a sessionStorage por seguridad
-localStorage.removeItem('spot_source_token');
-localStorage.removeItem('spot_dest_token');
-localStorage.removeItem('spot_source_refresh_token');
-localStorage.removeItem('spot_dest_refresh_token');
-if (state.sourceToken) sessionStorage.setItem('spot_source_token', state.sourceToken);
-if (state.sourceRefreshToken) sessionStorage.setItem('spot_source_refresh_token', state.sourceRefreshToken);
-if (state.destToken) sessionStorage.setItem('spot_dest_token', state.destToken);
-if (state.destRefreshToken) sessionStorage.setItem('spot_dest_refresh_token', state.destRefreshToken);
+// Limpieza de seguridad: borrar cualquier token residual de localStorage antiguo
+['spot_source_token', 'spot_dest_token', 'spot_source_refresh_token', 'spot_dest_refresh_token',
+ 'yt_source_token', 'yt_dest_token', 'yt_source_refresh_token', 'yt_dest_refresh_token'].forEach(k => localStorage.removeItem(k));
+
+// Platform mapping helpers
+function getSourcePlatform() {
+    return state.transferMode.startsWith('yt') ? 'youtube' : 'spotify';
+}
+
+function getDestPlatform() {
+    return state.transferMode.endsWith('yt') ? 'youtube' : 'spotify';
+}
+
+function getSourceToken() {
+    return getSourcePlatform() === 'youtube' ? state.ytSourceToken : state.sourceToken;
+}
+
+function getDestToken() {
+    return getDestPlatform() === 'youtube' ? state.ytDestToken : state.destToken;
+}
+
+function getSourceProfile() {
+    return getSourcePlatform() === 'youtube' ? state.ytSourceProfile : state.sourceProfile;
+}
+
+function getDestProfile() {
+    return getDestPlatform() === 'youtube' ? state.ytDestProfile : state.destProfile;
+}
 
 // Persistence helper for playlists
 function savePlaylists() {
@@ -87,15 +116,18 @@ function isForbidden(err) {
     if (!err) return false;
     if (err.status === 403) return true;
     const msg = (err.message || '').toLowerCase();
-    return msg.includes('403') || msg.includes('forbidden') || msg.includes('not registered');
+    return msg.includes('403') || msg.includes('forbidden') || msg.includes('not registered') || msg.includes('quotaexceeded');
 }
 
-// Escapar texto externo antes de insertarlo en plantillas HTML.
+// Escapar texto externo antes de insertarlo en el DOM
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[char]));
 }
+
+// Helper: Sleep
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // DOM Elements
 const views = {
@@ -114,9 +146,6 @@ const dots = {
 };
 
 const stepperLine = document.getElementById('stepper-line');
-
-// Helper: Sleep
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ==========================================
 // 1. PKCE Helper Functions
@@ -150,10 +179,14 @@ function base64UrlEncode(buffer) {
         .replace(/=+$/, '');
 }
 
-// Start Spotify OAuth PKCE Flow
-async function initiateAuth(mode) {
+// ==========================================
+// 2. OAuth PKCE Flow - Spotify & Google
+// ==========================================
+
+// Iniciar autorización Spotify (mode = 'source' | 'destination')
+async function initiateSpotifyAuth(mode) {
     if (!state.clientId) {
-        alert('Por favor configura primero tu Client ID.');
+        alert('Por favor configura primero tu Spotify Client ID.');
         setStep(1);
         return;
     }
@@ -164,11 +197,11 @@ async function initiateAuth(mode) {
     const hashed = await sha256(verifier);
     const challenge = base64UrlEncode(hashed);
 
-    // Vincula la respuesta OAuth con esta solicitud para evitar callbacks ajenos.
-    const oauthState = generateRandomString(32);
-    sessionStorage.setItem('spot_oauth_state', oauthState);
-    localStorage.setItem('spot_auth_mode', mode);
-    localStorage.setItem('spot_code_verifier', verifier);
+    const oauthState = `spotify_${mode}_${generateRandomString(24)}`;
+    sessionStorage.setItem('oauth_expected_state', oauthState);
+    sessionStorage.setItem('oauth_auth_mode', mode);
+    sessionStorage.setItem('oauth_platform', 'spotify');
+    sessionStorage.setItem('oauth_code_verifier', verifier);
 
     const scopes = [
         'playlist-read-private',
@@ -195,8 +228,58 @@ async function initiateAuth(mode) {
     window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
 }
 
-// Exchange authorization code for access token via local proxy
-async function exchangeCode(code, verifier) {
+// Iniciar autorización Google / YouTube (mode = 'source' | 'destination')
+async function initiateGoogleAuth(mode) {
+    if (!state.googleClientId) {
+        alert('Por favor configura primero tu Google / YouTube Client ID.');
+        setStep(1);
+        return;
+    }
+
+    savePlaylists();
+
+    const verifier = generateRandomString(64);
+    const hashed = await sha256(verifier);
+    const challenge = base64UrlEncode(hashed);
+
+    const oauthState = `google_${mode}_${generateRandomString(24)}`;
+    sessionStorage.setItem('oauth_expected_state', oauthState);
+    sessionStorage.setItem('oauth_auth_mode', mode);
+    sessionStorage.setItem('oauth_platform', 'google');
+    sessionStorage.setItem('oauth_code_verifier', verifier);
+
+    const scopes = [
+        'https://www.googleapis.com/auth/youtube',
+        'https://www.googleapis.com/auth/userinfo.profile'
+    ].join(' ');
+
+    const params = new URLSearchParams({
+        client_id: state.googleClientId,
+        redirect_uri: state.redirectUri,
+        response_type: 'code',
+        scope: scopes,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        state: oauthState,
+        access_type: 'offline',
+        prompt: 'consent'
+    });
+
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+// Iniciar login dinámicamente según plataforma del paso actual
+function initiateAuth(target) {
+    const platform = (target === 'source') ? getSourcePlatform() : getDestPlatform();
+    if (platform === 'youtube') {
+        initiateGoogleAuth(target);
+    } else {
+        initiateSpotifyAuth(target);
+    }
+}
+
+// Exchange Spotify authorization code
+async function exchangeSpotifyCode(code, verifier) {
     const payload = new URLSearchParams({
         client_id: state.clientId,
         grant_type: 'authorization_code',
@@ -214,10 +297,29 @@ async function exchangeCode(code, verifier) {
     return await res.json();
 }
 
-// Renovar access_token con refresh_token
-async function refreshAccessToken(mode) {
-    const refreshToken = mode === 'source' ? state.sourceRefreshToken : state.destRefreshToken;
-    if (!refreshToken) throw new Error(`No hay refresh token disponible para la cuenta de ${mode === 'source' ? 'origen' : 'destino'}.`);
+// Exchange Google authorization code
+async function exchangeGoogleCode(code, verifier) {
+    const payload = new URLSearchParams({
+        client_id: state.googleClientId,
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: state.redirectUri,
+        code_verifier: verifier
+    });
+
+    const res = await fetch('/api/youtube/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: payload.toString()
+    });
+
+    return await res.json();
+}
+
+// Renovar access_token de Spotify con refresh_token
+async function refreshSpotifyToken(mode) {
+    const refreshToken = (mode === 'source') ? state.sourceRefreshToken : state.destRefreshToken;
+    if (!refreshToken) throw new Error(`No hay refresh token para Spotify (${mode}).`);
 
     const payload = new URLSearchParams({
         client_id: state.clientId,
@@ -250,14 +352,49 @@ async function refreshAccessToken(mode) {
         }
         return tokenData.access_token;
     }
-    throw new Error(tokenData.error_description || tokenData.error || 'No se pudo renovar la sesión de Spotify');
+    throw new Error(tokenData.error_description || tokenData.error || 'No se pudo renovar token de Spotify');
 }
 
-// Authenticated Spotify API caller with rate limit retry & refresh token support
+// Renovar access_token de Google con refresh_token
+async function refreshGoogleToken(mode) {
+    const refreshToken = (mode === 'source') ? state.ytSourceRefreshToken : state.ytDestRefreshToken;
+    if (!refreshToken) throw new Error(`No hay refresh token para Google (${mode}).`);
+
+    const payload = new URLSearchParams({
+        client_id: state.googleClientId,
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken
+    });
+
+    const res = await fetch('/api/youtube/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: payload.toString()
+    });
+
+    const tokenData = await res.json();
+    if (tokenData.access_token) {
+        if (mode === 'source') {
+            state.ytSourceToken = tokenData.access_token;
+            sessionStorage.setItem('yt_source_token', tokenData.access_token);
+        } else {
+            state.ytDestToken = tokenData.access_token;
+            sessionStorage.setItem('yt_dest_token', tokenData.access_token);
+        }
+        return tokenData.access_token;
+    }
+    throw new Error(tokenData.error_description || tokenData.error || 'No se pudo renovar token de Google');
+}
+
+// ==========================================
+// 3. API Callers (Spotify & YouTube)
+// ==========================================
+
+// Authenticated Spotify API caller
 async function spotifyApi(token, endpoint, options = {}) {
     const url = new URL(endpoint.startsWith('http') ? endpoint : `https://api.spotify.com/v1${endpoint}`);
-    // Nunca enviar el Bearer token a un host indicado por datos externos.
     if (url.origin !== 'https://api.spotify.com') throw new Error('Destino de API no permitido.');
+
     const headers = {
         'Authorization': `Bearer ${token}`,
         ...(options.headers || {})
@@ -279,9 +416,7 @@ async function spotifyApi(token, endpoint, options = {}) {
                 continue;
             }
 
-            if (res.status === 204) {
-                return null;
-            }
+            if (res.status === 204) return null;
 
             const text = await res.text();
 
@@ -300,25 +435,22 @@ async function spotifyApi(token, endpoint, options = {}) {
                     const mode = (token === state.sourceToken) ? 'source' : ((token === state.destToken) ? 'destination' : null);
                     if (mode) {
                         try {
-                            logMessage(`[Sesión] Renovando token expirado de cuenta de ${mode === 'source' ? 'origen' : 'destino'}...`);
-                            const newToken = await refreshAccessToken(mode);
+                            logMessage(`[Sesión] Renovando token expirado de Spotify (${mode})...`);
+                            const newToken = await refreshSpotifyToken(mode);
                             return await spotifyApi(newToken, endpoint, { ...options, _isRetryAfterRefresh: true });
                         } catch (refreshErr) {
-                            console.warn('Error al auto-renovar token:', refreshErr);
+                            console.warn('Error al auto-renovar token Spotify:', refreshErr);
                         }
                     }
                 }
 
-                // Errores deterministas de cliente: no reintentar en bucle
                 if ([400, 401, 403, 404].includes(res.status)) {
                     throw err;
                 }
                 throw err;
             }
 
-            if (!text || text.trim().length === 0) {
-                return null;
-            }
+            if (!text || text.trim().length === 0) return null;
 
             try {
                 return JSON.parse(text);
@@ -326,10 +458,81 @@ async function spotifyApi(token, endpoint, options = {}) {
                 return text;
             }
         } catch (err) {
-            // Si es un error de cliente permanente ya lanzado, propagar de inmediato
-            if (err.status && [400, 401, 403, 404].includes(err.status)) {
+            if (err.status && [400, 401, 403, 404].includes(err.status)) throw err;
+            if (attempts >= 5) throw err;
+            await sleep(1000 * attempts);
+        }
+    }
+}
+
+// Authenticated YouTube Data API caller
+async function youtubeApi(token, endpoint, options = {}) {
+    const url = new URL(endpoint.startsWith('http') ? endpoint : `https://www.googleapis.com/youtube/v3${endpoint}`);
+    if (url.origin !== 'https://www.googleapis.com' && url.origin !== 'https://oauth2.googleapis.com') {
+        throw new Error('Destino de API no permitido.');
+    }
+
+    const headers = {
+        'Authorization': `Bearer ${token}`,
+        ...(options.headers || {})
+    };
+    if (options.body && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    let attempts = 0;
+    while (attempts < 5) {
+        attempts++;
+        try {
+            const res = await fetch(url, { ...options, headers });
+
+            if (res.status === 429) {
+                logMessage(`[Aviso] Cuota o límite de YouTube alcanzado. Pausando 3s...`);
+                await sleep(3000);
+                continue;
+            }
+
+            if (res.status === 204) return null;
+
+            const text = await res.text();
+
+            if (!res.ok) {
+                let msg = `HTTP ${res.status}`;
+                try {
+                    const errData = JSON.parse(text);
+                    msg = errData.error?.message || msg;
+                } catch (e) {}
+                const err = new Error(msg);
+                err.status = res.status;
+                err.statusText = res.statusText;
+
+                // Auto-refresh token ante 401
+                if (res.status === 401 && !options._isRetryAfterRefresh) {
+                    const mode = (token === state.ytSourceToken) ? 'source' : ((token === state.ytDestToken) ? 'destination' : null);
+                    if (mode) {
+                        try {
+                            logMessage(`[Sesión] Renovando token expirado de YouTube (${mode})...`);
+                            const newToken = await refreshGoogleToken(mode);
+                            return await youtubeApi(newToken, endpoint, { ...options, _isRetryAfterRefresh: true });
+                        } catch (refreshErr) {
+                            console.warn('Error al auto-renovar token Google:', refreshErr);
+                        }
+                    }
+                }
+
+                if ([400, 401, 403, 404].includes(res.status)) throw err;
                 throw err;
             }
+
+            if (!text || text.trim().length === 0) return null;
+
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return text;
+            }
+        } catch (err) {
+            if (err.status && [400, 401, 403, 404].includes(err.status)) throw err;
             if (attempts >= 5) throw err;
             await sleep(1000 * attempts);
         }
@@ -337,7 +540,202 @@ async function spotifyApi(token, endpoint, options = {}) {
 }
 
 // ==========================================
-// 2. Navigation & Stepper
+// 4. YouTube Helper Functions
+// ==========================================
+
+// Cargar perfil de Google del usuario
+async function loadGoogleProfile(token) {
+    const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} al cargar perfil de Google`);
+    return await res.json();
+}
+
+// Cargar listas del usuario de YouTube
+async function loadYouTubePlaylists(token) {
+    let playlists = [];
+    let pageToken = '';
+
+    while (true) {
+        const url = `/playlists?part=snippet,contentDetails&mine=true&maxResults=50${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+        const data = await youtubeApi(token, url);
+
+        if (data && data.items) {
+            playlists = playlists.concat(data.items);
+            pageToken = data.nextPageToken || '';
+            if (!pageToken) break;
+        } else {
+            break;
+        }
+    }
+    return playlists;
+}
+
+// Obtener canciones de una playlist de YouTube
+async function fetchYouTubePlaylistTracks(token, playlistId) {
+    let tracks = [];
+    let pageToken = '';
+
+    while (true) {
+        const url = `/playlistItems?part=snippet&playlistId=${encodeURIComponent(playlistId)}&maxResults=50${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+        const data = await youtubeApi(token, url);
+
+        if (data && data.items) {
+            data.items.forEach(item => {
+                const snip = item.snippet;
+                const videoId = snip?.resourceId?.videoId;
+                if (videoId && snip.title && snip.title !== 'Private video' && snip.title !== 'Deleted video') {
+                    tracks.push({
+                        id: videoId,
+                        videoId: videoId,
+                        name: snip.title,
+                        artist: snip.videoOwnerChannelTitle || ''
+                    });
+                }
+            });
+            pageToken = data.nextPageToken || '';
+            if (!pageToken) break;
+        } else {
+            break;
+        }
+    }
+    return tracks;
+}
+
+// Crear playlist en YouTube
+async function createYouTubePlaylist(token, title, description, isPrivate) {
+    const body = {
+        snippet: {
+            title: title,
+            description: description || 'Migrada con MusicTransferly'
+        },
+        status: {
+            privacyStatus: isPrivate ? 'private' : 'public'
+        }
+    };
+
+    return await youtubeApi(token, '/playlists?part=snippet,status', {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+}
+
+// Añadir video a una playlist de YouTube
+async function addVideoToYouTubePlaylist(token, playlistId, videoId) {
+    const body = {
+        snippet: {
+            playlistId: playlistId,
+            resourceId: {
+                kind: 'youtube#video',
+                videoId: videoId
+            }
+        }
+    };
+
+    return await youtubeApi(token, '/playlistItems?part=snippet', {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+}
+
+// Buscar video en YouTube correspondiente a una canción (con Music category)
+async function searchYouTubeVideo(token, title, artist) {
+    const cleanT = cleanTitleForSearch(title);
+    const query = artist ? `${artist} - ${cleanT}` : cleanT;
+    const url = `/search?part=snippet&type=video&videoCategoryId=10&maxResults=1&q=${encodeURIComponent(query)}`;
+
+    try {
+        const res = await youtubeApi(token, url);
+        if (res?.items?.[0]?.id?.videoId) {
+            return res.items[0].id.videoId;
+        }
+    } catch (e) {
+        console.warn('Error en búsqueda de YouTube:', e);
+    }
+
+    // Fallback general sin categoría si la de música no encontró resultado
+    try {
+        const fallbackUrl = `/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(query + ' audio')}`;
+        const res2 = await youtubeApi(token, fallbackUrl);
+        return res2?.items?.[0]?.id?.videoId || null;
+    } catch (e2) {
+        return null;
+    }
+}
+
+// ==========================================
+// 5. Algoritmo de Normalización y Limpieza de Títulos
+// ==========================================
+
+// Limpia sufijos ruidosos de videos de YouTube para búsqueda exacta en Spotify
+function cleanYouTubeTitle(rawTitle) {
+    if (!rawTitle) return { title: '', artist: '' };
+
+    let str = rawTitle;
+
+    // Eliminar etiquetas tipo [Official Video], (Audio Oficial), etc.
+    str = str.replace(/\[(official|video|audio|lyrics?|hd|4k|remastered|visualizer|clip|letra).*?\]/gi, '');
+    str = str.replace(/\((official|video|audio|lyrics?|hd|4k|remastered|visualizer|clip|letra|version|en vivo).*?\)/gi, '');
+    str = str.replace(/\|\s*official\s*(music\s*)?video/gi, '');
+    str = str.replace(/ft\.\s*[^()\[\]-]+/gi, '');
+    str = str.replace(/feat\.\s*[^()\[\]-]+/gi, '');
+    str = str.replace(/\s+/g, ' ').trim();
+
+    // Intentar separar "Artista - Título" si existe guión o guión largo
+    const dashMatch = str.match(/^(.*?)\s*[-–—:]\s*(.*)$/);
+    if (dashMatch) {
+        return {
+            artist: dashMatch[1].trim(),
+            title: dashMatch[2].trim()
+        };
+    }
+
+    return { title: str, artist: '' };
+}
+
+function cleanTitleForSearch(title) {
+    return (title || '')
+        .replace(/[\(\[\{].*?[\)\]\}]/g, '')
+        .replace(/[^\w\s\u00C0-\u017F]/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// Buscar canción en Spotify usando título y artista
+async function searchSpotifyTrack(token, rawTitle, defaultArtist = '') {
+    const parsed = cleanYouTubeTitle(rawTitle);
+    const title = parsed.title || rawTitle;
+    const artist = parsed.artist || defaultArtist;
+
+    // 1. Intento estricto con campos track y artist
+    if (artist && title) {
+        try {
+            const q = `track:${encodeURIComponent(title)} artist:${encodeURIComponent(artist)}`;
+            const res = await spotifyApi(token, `/search?type=track&limit=1&q=${q}`);
+            if (res?.tracks?.items?.[0]?.uri) return res.tracks.items[0].uri;
+        } catch (e) {}
+    }
+
+    // 2. Intento de texto libre con artista y título
+    try {
+        const freeQuery = encodeURIComponent(`${title} ${artist}`.trim());
+        const res2 = await spotifyApi(token, `/search?type=track&limit=1&q=${freeQuery}`);
+        if (res2?.tracks?.items?.[0]?.uri) return res2.tracks.items[0].uri;
+    } catch (e) {}
+
+    // 3. Intento únicamente con título limpio
+    try {
+        const cleanT = cleanTitleForSearch(title);
+        const res3 = await spotifyApi(token, `/search?type=track&limit=1&q=${encodeURIComponent(cleanT)}`);
+        return res3?.tracks?.items?.[0]?.uri || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// ==========================================
+// 6. Navigation & Stepper
 // ==========================================
 function setStep(stepNumber) {
     state.step = stepNumber;
@@ -349,7 +747,10 @@ function setStep(stepNumber) {
         views[`step${stepNumber}`].classList.remove('hidden');
     }
 
-    if (stepNumber === 3) {
+    if (stepNumber === 2) {
+        updateStep2UI();
+    } else if (stepNumber === 3) {
+        updateStep3UI();
         updateDestinationSummary();
     }
 
@@ -373,8 +774,124 @@ function setStep(stepNumber) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// Adaptación dinámica de UI según el modo seleccionado
+function updateModeUI() {
+    const srcPlat = getSourcePlatform();
+    const dstPlat = getDestPlatform();
+
+    // Actualizar tarjetas de selección de ruta
+    document.querySelectorAll('#transfer-mode-selector .route-card').forEach(card => {
+        const mode = card.getAttribute('data-mode');
+        const check = card.querySelector('.route-check');
+        if (mode === state.transferMode) {
+            card.className = 'route-card p-4 rounded-xl border-2 border-spotify-green bg-spotify-dark/80 text-left transition flex items-center justify-between';
+            if (check) check.classList.remove('hidden');
+        } else {
+            card.className = 'route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100';
+            if (check) check.classList.add('hidden');
+        }
+    });
+
+    // Mostrar/ocultar inputs y guías según las plataformas requeridas
+    const needsSpotify = srcPlat === 'spotify' || dstPlat === 'spotify';
+    const needsGoogle = srcPlat === 'youtube' || dstPlat === 'youtube';
+
+    const fieldSpotify = document.getElementById('field-spotify-client-id');
+    const fieldGoogle = document.getElementById('field-google-client-id');
+    const guideSpotify = document.getElementById('guide-spotify');
+    const guideYoutube = document.getElementById('guide-youtube');
+
+    if (fieldSpotify) fieldSpotify.style.display = needsSpotify ? 'block' : 'none';
+    if (fieldGoogle) fieldGoogle.style.display = needsGoogle ? 'block' : 'none';
+    if (guideSpotify) guideSpotify.style.display = needsSpotify ? 'block' : 'none';
+    if (guideYoutube) guideYoutube.style.display = needsGoogle ? 'block' : 'none';
+
+    // Etiquetas del Stepper
+    const stepLabel2 = document.getElementById('step-label-2');
+    const stepLabel3 = document.getElementById('step-label-3');
+    if (stepLabel2) stepLabel2.textContent = srcPlat === 'youtube' ? 'Origen (YouTube)' : 'Origen (Spotify)';
+    if (stepLabel3) stepLabel3.textContent = dstPlat === 'youtube' ? 'Destino (YouTube)' : 'Destino (Spotify)';
+}
+
+function updateStep2UI() {
+    const srcPlat = getSourcePlatform();
+    const badge = document.getElementById('source-platform-badge');
+    const btnLogin = document.getElementById('btn-login-source');
+    const profile = getSourceProfile();
+    const token = getSourceToken();
+
+    if (srcPlat === 'youtube') {
+        if (badge) {
+            badge.textContent = 'Cuenta de Origen: YouTube Music';
+            badge.className = 'text-xs uppercase tracking-wider text-red-500 font-semibold';
+        }
+        if (btnLogin) {
+            btnLogin.className = 'bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-red-600/20';
+            btnLogin.textContent = token ? 'Cambiar cuenta de Google/YouTube' : 'Conectar Google / YouTube Origen';
+        }
+    } else {
+        if (badge) {
+            badge.textContent = 'Cuenta de Origen: Spotify';
+            badge.className = 'text-xs uppercase tracking-wider text-spotify-green font-semibold';
+        }
+        if (btnLogin) {
+            btnLogin.className = 'bg-spotify-green hover:bg-spotify-hover text-black font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-spotify-green/20';
+            btnLogin.textContent = token ? 'Cambiar cuenta de Spotify' : 'Conectar Cuenta de Spotify';
+        }
+    }
+
+    if (profile) {
+        document.getElementById('source-name').textContent = profile.display_name || profile.name || profile.id;
+        document.getElementById('source-email').textContent = profile.email || `ID: ${profile.id}`;
+        const pic = profile.picture || profile.images?.[0]?.url;
+        if (pic) {
+            document.getElementById('source-avatar').innerHTML = `<img src="${escapeHtml(pic)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+        }
+    }
+}
+
+function updateStep3UI() {
+    const dstPlat = getDestPlatform();
+    const badge = document.getElementById('dest-platform-badge');
+    const btnLogin = document.getElementById('dest-auth-card')?.querySelector('#btn-login-dest');
+    const heartBox = document.getElementById('opt-heart-songs-box');
+    const profile = getDestProfile();
+    const token = getDestToken();
+
+    if (dstPlat === 'youtube') {
+        if (badge) {
+            badge.textContent = 'Cuenta de Destino: YouTube Music';
+            badge.className = 'text-xs uppercase tracking-wider text-red-500 font-semibold';
+        }
+        if (btnLogin) {
+            btnLogin.className = 'bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-red-600/20';
+            btnLogin.textContent = token ? 'Cambiar cuenta YouTube destino' : 'Conectar YouTube Destino';
+        }
+        if (heartBox) heartBox.style.display = 'none';
+    } else {
+        if (badge) {
+            badge.textContent = 'Cuenta de Destino: Spotify';
+            badge.className = 'text-xs uppercase tracking-wider text-blue-400 font-semibold';
+        }
+        if (btnLogin) {
+            btnLogin.className = 'bg-blue-500 hover:bg-blue-400 text-white font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-blue-500/20';
+            btnLogin.textContent = token ? 'Cambiar cuenta Spotify destino' : 'Conectar Spotify Destino';
+        }
+        if (heartBox) heartBox.style.display = 'flex';
+    }
+
+    if (profile) {
+        document.getElementById('dest-name').textContent = profile.display_name || profile.name || profile.id;
+        document.getElementById('dest-email').textContent = profile.email || `ID: ${profile.id}`;
+        const pic = profile.picture || profile.images?.[0]?.url;
+        if (pic) {
+            document.getElementById('dest-avatar').innerHTML = `<img src="${escapeHtml(pic)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+        }
+    }
+}
+
 // ==========================================
-// 3. Step 1: Configuration Logic
+// 7. Step 1: Configuration Logic
 // ==========================================
 document.getElementById('redirect-uri-display').textContent = state.redirectUri;
 
@@ -386,21 +903,55 @@ document.getElementById('btn-copy-uri').addEventListener('click', () => {
     setTimeout(() => { btn.textContent = oldText; }, 2000);
 });
 
+// Selector de ruta
+document.querySelectorAll('#transfer-mode-selector .route-card').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-mode');
+        state.transferMode = mode;
+        localStorage.setItem('transfer_mode', mode);
+        updateModeUI();
+    });
+});
+
 if (state.clientId) {
     document.getElementById('input-client-id').value = state.clientId;
 }
+if (state.googleClientId) {
+    document.getElementById('input-google-client-id').value = state.googleClientId;
+}
+updateModeUI();
 
 document.getElementById('form-config').addEventListener('submit', (e) => {
     e.preventDefault();
-    const id = document.getElementById('input-client-id').value.trim();
-    if (!id) return;
-    state.clientId = id;
-    localStorage.setItem('spot_client_id', id);
+    const srcPlat = getSourcePlatform();
+    const dstPlat = getDestPlatform();
+
+    const spotId = document.getElementById('input-client-id').value.trim();
+    const googleId = document.getElementById('input-google-client-id').value.trim();
+
+    if ((srcPlat === 'spotify' || dstPlat === 'spotify') && !spotId) {
+        alert('Por favor ingresa tu Spotify Client ID.');
+        return;
+    }
+    if ((srcPlat === 'youtube' || dstPlat === 'youtube') && !googleId) {
+        alert('Por favor ingresa tu Google / YouTube Client ID.');
+        return;
+    }
+
+    if (spotId) {
+        state.clientId = spotId;
+        localStorage.setItem('spot_client_id', spotId);
+    }
+    if (googleId) {
+        state.googleClientId = googleId;
+        localStorage.setItem('google_client_id', googleId);
+    }
+
     setStep(2);
 });
 
 // ==========================================
-// 4. Step 2: Source Account Logic
+// 8. Step 2: Source Account Logic
 // ==========================================
 document.getElementById('btn-login-source').addEventListener('click', () => {
     const banner403 = document.getElementById('source-403-banner');
@@ -409,99 +960,130 @@ document.getElementById('btn-login-source').addEventListener('click', () => {
 });
 
 async function loadSourceProfileAndPlaylists() {
-    if (!state.sourceToken) return;
+    const srcPlat = getSourcePlatform();
+    const token = getSourceToken();
+    if (!token) return;
 
     const sourceBtn = document.getElementById('btn-login-source');
     sourceBtn.innerHTML = `⏳ Cargando datos...`;
 
     try {
-        const profile = await spotifyApi(state.sourceToken, '/me');
-        state.sourceProfile = profile;
-        localStorage.setItem('spot_source_profile', JSON.stringify(profile));
+        if (srcPlat === 'youtube') {
+            // YouTube Flow
+            const profile = await loadGoogleProfile(token);
+            state.ytSourceProfile = profile;
+            sessionStorage.setItem('yt_source_profile', JSON.stringify(profile));
 
-        document.getElementById('source-name').textContent = profile.display_name || profile.id;
-        document.getElementById('source-email').textContent = profile.email || `ID: ${profile.id}`;
-        if (profile.images && profile.images.length > 0) {
-            document.getElementById('source-avatar').innerHTML = `<img src="${escapeHtml(profile.images[0].url)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
-        }
-        sourceBtn.innerHTML = 'Cambiar cuenta origen';
-        document.getElementById('source-content').classList.remove('hidden');
-
-        // Fetch Liked Songs count
-        let likedCount = 0;
-        try {
-            const likedRes = await spotifyApi(state.sourceToken, '/me/tracks?limit=1');
-            likedCount = likedRes.total || 0;
-        } catch (e) {
-            console.warn('No se pudieron obtener me gusta:', e);
-        }
-        state.likedSongsTotal = likedCount;
-
-        // Fetch All Playlists
-        let playlists = [];
-        let url = '/me/playlists?limit=50';
-        while (url) {
-            const data = await spotifyApi(state.sourceToken, url);
-            if (data && data.items) {
-                playlists = playlists.concat(data.items);
-                url = data.next;
-            } else {
-                break;
+            document.getElementById('source-name').textContent = profile.name || profile.email;
+            document.getElementById('source-email').textContent = profile.email || `ID: ${profile.id}`;
+            if (profile.picture) {
+                document.getElementById('source-avatar').innerHTML = `<img src="${escapeHtml(profile.picture)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
             }
-        }
+            sourceBtn.innerHTML = 'Cambiar cuenta YouTube origen';
+            document.getElementById('source-content').classList.remove('hidden');
 
-        state.playlists = [];
-
-        // Special: Add Liked Songs as virtual playlist #1 if > 0
-        if (state.likedSongsTotal > 0) {
-            state.playlists.push({
-                id: '__LIKED_SONGS__',
-                name: '❤️ Canciones que te gustan (Liked Songs)',
-                description: 'Tus canciones favoritas guardadas en tu biblioteca',
-                tracksCount: state.likedSongsTotal,
-                imageUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%231ed760"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
-                isLikedSongs: true,
+            const ytPlaylists = await loadYouTubePlaylists(token);
+            state.playlists = ytPlaylists.map(pl => ({
+                id: pl.id,
+                name: pl.snippet?.title || 'Sin título',
+                description: pl.snippet?.description || '',
+                tracksCount: pl.contentDetails?.itemCount || 0,
+                imageUrl: pl.snippet?.thumbnails?.medium?.url || pl.snippet?.thumbnails?.default?.url || '',
+                platform: 'youtube',
+                isLikedSongs: false,
                 isOwned: true,
                 selected: true,
                 tracks: []
+            }));
+
+        } else {
+            // Spotify Flow
+            const profile = await spotifyApi(token, '/me');
+            state.sourceProfile = profile;
+            sessionStorage.setItem('spot_source_profile', JSON.stringify(profile));
+
+            document.getElementById('source-name').textContent = profile.display_name || profile.id;
+            document.getElementById('source-email').textContent = profile.email || `ID: ${profile.id}`;
+            if (profile.images && profile.images.length > 0) {
+                document.getElementById('source-avatar').innerHTML = `<img src="${escapeHtml(profile.images[0].url)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+            }
+            sourceBtn.innerHTML = 'Cambiar cuenta Spotify origen';
+            document.getElementById('source-content').classList.remove('hidden');
+
+            // Liked songs count
+            let likedCount = 0;
+            try {
+                const likedRes = await spotifyApi(token, '/me/tracks?limit=1');
+                likedCount = likedRes.total || 0;
+            } catch (e) {
+                console.warn('No se pudieron obtener me gusta:', e);
+            }
+            state.likedSongsTotal = likedCount;
+
+            // Fetch playlists
+            let playlists = [];
+            let url = '/me/playlists?limit=50';
+            while (url) {
+                const data = await spotifyApi(token, url);
+                if (data && data.items) {
+                    playlists = playlists.concat(data.items);
+                    url = data.next;
+                } else {
+                    break;
+                }
+            }
+
+            state.playlists = [];
+
+            if (state.likedSongsTotal > 0) {
+                state.playlists.push({
+                    id: '__LIKED_SONGS__',
+                    name: '❤️ Canciones que te gustan (Liked Songs)',
+                    description: 'Tus canciones favoritas guardadas en tu biblioteca',
+                    tracksCount: state.likedSongsTotal,
+                    imageUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%231ed760"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
+                    platform: 'spotify',
+                    isLikedSongs: true,
+                    isOwned: true,
+                    selected: true,
+                    tracks: []
+                });
+            }
+
+            playlists.forEach(pl => {
+                if (!pl) return;
+                const isOwned = pl.owner?.id === profile.id;
+                state.playlists.push({
+                    id: pl.id,
+                    name: pl.name,
+                    description: pl.description || '',
+                    tracksCount: pl.tracks?.total || 0,
+                    imageUrl: pl.images?.[0]?.url || '',
+                    platform: 'spotify',
+                    isLikedSongs: false,
+                    isOwned: isOwned,
+                    selected: true,
+                    tracks: []
+                });
             });
         }
-
-        playlists.forEach(pl => {
-            if (!pl) return;
-            const isOwned = pl.owner?.id === profile.id;
-            state.playlists.push({
-                id: pl.id,
-                name: pl.name,
-                description: pl.description || '',
-                tracksCount: pl.tracks?.total || 0,
-                imageUrl: pl.images?.[0]?.url || '',
-                isLikedSongs: false,
-                isOwned: isOwned,
-                selected: true,
-                tracks: []
-            });
-        });
 
         savePlaylists();
         renderPlaylists();
     } catch (err) {
         console.error('Error cargando origen:', err);
-        sourceBtn.innerHTML = 'Conectar Cuenta de Origen';
+        sourceBtn.innerHTML = srcPlat === 'youtube' ? 'Conectar YouTube Origen' : 'Conectar Spotify Origen';
 
         if (isForbidden(err)) {
             const banner403 = document.getElementById('source-403-banner');
-            if (banner403) {
+            if (banner403 && srcPlat === 'spotify') {
                 banner403.classList.remove('hidden');
                 banner403.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                alert('Error 403: Verifica los permisos o cuota de API de tu cuenta.');
             }
         } else if (err.message && (err.message.includes('401') || err.message.includes('expired'))) {
-            state.sourceToken = '';
-            state.sourceRefreshToken = '';
-            sessionStorage.removeItem('spot_source_token');
-            sessionStorage.removeItem('spot_source_refresh_token');
-            localStorage.removeItem('spot_source_token');
-            alert('Tu sesión de Spotify expiró. Por favor vuelve a hacer clic en "Conectar Cuenta de Origen".');
+            alert('Tu sesión expiró. Por favor vuelve a hacer clic en Conectar.');
         } else {
             alert('Error al conectar con la cuenta de origen: ' + err.message);
         }
@@ -606,25 +1188,31 @@ document.getElementById('btn-export-json').addEventListener('click', async () =>
     const oldText = exportBtn.innerHTML;
     exportBtn.innerHTML = `⏳ Preparando respaldo...`;
 
+    const srcPlat = getSourcePlatform();
+    const token = getSourceToken();
     const exportData = [];
+
     for (const pl of selected) {
-        let trackUris = [];
+        let tracks = [];
         try {
-            if (pl.isLikedSongs) {
-                trackUris = await fetchLikedSongsTracks(state.sourceToken);
-            } else if (pl.isOwned) {
-                trackUris = await fetchPlaylistTracks(state.sourceToken, pl.id);
+            if (srcPlat === 'youtube') {
+                tracks = await fetchYouTubePlaylistTracks(token, pl.id);
+            } else if (pl.isLikedSongs) {
+                tracks = await fetchLikedSongsTracks(token);
+            } else {
+                tracks = await fetchPlaylistTracks(token, pl.id);
             }
         } catch (e) {
-            console.warn(`No se pudieron exportar pistas de ${escapeHtml(pl.name)}:`, e);
+            console.warn(`No se pudieron exportar pistas de ${pl.name}:`, e);
         }
         exportData.push({
             name: pl.name,
             id: pl.id,
             description: pl.description,
+            platform: srcPlat,
             isLikedSongs: pl.isLikedSongs,
             isOwned: pl.isOwned,
-            tracks: trackUris
+            tracks: tracks
         });
     }
 
@@ -632,7 +1220,7 @@ document.getElementById('btn-export-json').addEventListener('click', async () =>
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `spottransfer-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `musictransferly-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -655,6 +1243,7 @@ document.getElementById('input-import-json').addEventListener('change', (e) => {
                 description: item.description || '',
                 tracksCount: (item.tracks || []).length,
                 imageUrl: '',
+                platform: item.platform || 'json',
                 isLikedSongs: !!item.isLikedSongs,
                 isOwned: item.isOwned ?? true,
                 selected: true,
@@ -688,7 +1277,7 @@ document.getElementById('btn-go-to-dest').addEventListener('click', () => {
 });
 
 // ==========================================
-// 5. Step 3: Destination Account Logic
+// 9. Step 3: Destination Account Logic
 // ==========================================
 document.getElementById('btn-login-dest').addEventListener('click', () => {
     const dest403 = document.getElementById('dest-403-banner');
@@ -702,23 +1291,40 @@ document.getElementById('btn-back-to-source').addEventListener('click', () => {
 });
 
 async function checkDestinationProfile() {
-    if (!state.destToken) return;
+    const dstPlat = getDestPlatform();
+    const token = getDestToken();
+    if (!token) return;
 
     try {
-        const profile = await spotifyApi(state.destToken, '/me');
-        state.destProfile = profile;
-        localStorage.setItem('spot_dest_profile', JSON.stringify(profile));
+        if (dstPlat === 'youtube') {
+            const profile = await loadGoogleProfile(token);
+            state.ytDestProfile = profile;
+            sessionStorage.setItem('yt_dest_profile', JSON.stringify(profile));
 
-        document.getElementById('dest-name').textContent = profile.display_name || profile.id;
-        document.getElementById('dest-email').textContent = profile.email || `ID: ${profile.id}`;
-        if (profile.images && profile.images.length > 0) {
-            document.getElementById('dest-avatar').innerHTML = `<img src="${escapeHtml(profile.images[0].url)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+            document.getElementById('dest-name').textContent = profile.name || profile.email;
+            document.getElementById('dest-email').textContent = profile.email || `ID: ${profile.id}`;
+            if (profile.picture) {
+                document.getElementById('dest-avatar').innerHTML = `<img src="${escapeHtml(profile.picture)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+            }
+            document.getElementById('btn-login-dest').textContent = 'Cambiar cuenta YouTube destino';
+        } else {
+            const profile = await spotifyApi(token, '/me');
+            state.destProfile = profile;
+            sessionStorage.setItem('spot_dest_profile', JSON.stringify(profile));
+
+            document.getElementById('dest-name').textContent = profile.display_name || profile.id;
+            document.getElementById('dest-email').textContent = profile.email || `ID: ${profile.id}`;
+            if (profile.images && profile.images.length > 0) {
+                document.getElementById('dest-avatar').innerHTML = `<img src="${escapeHtml(profile.images[0].url)}" class="w-full h-full object-cover rounded-full" alt="avatar">`;
+            }
+            document.getElementById('btn-login-dest').textContent = 'Cambiar cuenta Spotify destino';
         }
-        document.getElementById('btn-login-dest').textContent = 'Cambiar cuenta destino';
 
-        // Check if same account
+        // Advertencia si es exactamente la misma cuenta en la misma plataforma
         const warning = document.getElementById('warning-same-account');
-        if (state.sourceProfile && state.destProfile && state.sourceProfile.id === state.destProfile.id) {
+        const srcProfile = getSourceProfile();
+        const dstProfile = getDestProfile();
+        if (getSourcePlatform() === dstPlat && srcProfile && dstProfile && srcProfile.id === dstProfile.id) {
             warning.classList.remove('hidden');
         } else {
             warning.classList.add('hidden');
@@ -731,25 +1337,28 @@ async function checkDestinationProfile() {
         updateDestinationSummary();
     } catch (err) {
         console.error('Error cargando destino:', err);
-        state.destToken = '';
-        state.destRefreshToken = '';
-        sessionStorage.removeItem('spot_dest_token');
-        sessionStorage.removeItem('spot_dest_refresh_token');
-        localStorage.removeItem('spot_dest_token');
+        if (dstPlat === 'youtube') {
+            state.ytDestToken = '';
+            sessionStorage.removeItem('yt_dest_token');
+        } else {
+            state.destToken = '';
+            sessionStorage.removeItem('spot_dest_token');
+        }
 
-        if (isForbidden(err)) {
+        if (isForbidden(err) && dstPlat === 'spotify') {
             const banner403 = document.getElementById('dest-403-banner');
             if (banner403) banner403.classList.remove('hidden');
-            alert('⚠️ Error 403: Tu cuenta de DESTINO no está registrada en "Users and Access" de tu Spotify Developer Dashboard. Agrega su correo y pulsa Save.');
+            alert('⚠️ Error 403: Tu cuenta de DESTINO no está registrada en "Users and Access" de tu Spotify Developer Dashboard.');
         } else {
             alert('Error al verificar cuenta de destino: ' + err.message);
         }
     }
 }
 
-// Start transfer
+// Start transfer button
 document.getElementById('btn-start-transfer').addEventListener('click', () => {
-    if (!state.destToken) {
+    const token = getDestToken();
+    if (!token) {
         alert('Por favor conecta primero tu Cuenta de Destino.');
         return;
     }
@@ -761,7 +1370,9 @@ document.getElementById('btn-start-transfer').addEventListener('click', () => {
         return;
     }
 
-    if (state.sourceProfile && state.destProfile && state.sourceProfile.id === state.destProfile.id) {
+    const srcProfile = getSourceProfile();
+    const dstProfile = getDestProfile();
+    if (getSourcePlatform() === getDestPlatform() && srcProfile && dstProfile && srcProfile.id === dstProfile.id) {
         if (!confirm('⚠️ Advertencia: Ambas cuentas tienen el mismo ID. ¿Estás seguro de que deseas duplicar las listas en la misma cuenta?')) {
             return;
         }
@@ -771,7 +1382,7 @@ document.getElementById('btn-start-transfer').addEventListener('click', () => {
 });
 
 // ==========================================
-// 6. Step 4 & 5: Transfer Engine (Dual-Route)
+// 10. Step 4 & 5: Transfer Engine (Bidirectional)
 // ==========================================
 function logMessage(msg) {
     const consoleBox = document.getElementById('live-console');
@@ -782,7 +1393,7 @@ function logMessage(msg) {
     consoleBox.scrollTop = consoleBox.scrollHeight;
 }
 
-// Fetch tracks helper for owned playlist
+// Fetch tracks helper for Spotify owned playlist
 async function fetchPlaylistTracks(token, playlistId) {
     let tracks = [];
     let url = `/playlists/${playlistId}/items?limit=100`;
@@ -807,7 +1418,6 @@ async function fetchPlaylistTracks(token, playlistId) {
         }
         return tracks;
     } catch (err) {
-        // Fallback to legacy endpoint if items is 404
         if (err.status === 404) {
             url = `/playlists/${playlistId}/tracks?limit=100`;
             while (url) {
@@ -833,7 +1443,7 @@ async function fetchPlaylistTracks(token, playlistId) {
     }
 }
 
-// Fetch tracks helper for Liked Songs
+// Fetch tracks helper for Spotify Liked Songs
 async function fetchLikedSongsTracks(token) {
     let tracks = [];
     let url = `/me/tracks?limit=50`;
@@ -858,7 +1468,7 @@ async function fetchLikedSongsTracks(token) {
     return tracks;
 }
 
-// Create a new playlist on destination user
+// Create playlist on Spotify destination
 async function createPlaylistOnDestination(token, destUserId, name, description, isPublic) {
     const body = JSON.stringify({
         name: name,
@@ -883,7 +1493,7 @@ async function createPlaylistOnDestination(token, destUserId, name, description,
     });
 }
 
-// Add tracks to playlist
+// Add tracks to Spotify playlist
 async function addItemsToPlaylist(token, playlistId, uris) {
     try {
         await spotifyApi(token, `/playlists/${playlistId}/items`, {
@@ -898,51 +1508,41 @@ async function addItemsToPlaylist(token, playlistId, uris) {
     }
 }
 
-// Save tracks with heart ❤️ to destination library using standard /me/tracks
+// Save tracks with heart ❤️ to Spotify library
 async function saveLikedTracksToLibrary(token, trackUris) {
     if (!trackUris || trackUris.length === 0) return 0;
 
     let saved = 0;
-    const batchSize = 50; // Límite oficial de Spotify para PUT /me/tracks
+    const batchSize = 50;
 
     for (let b = 0; b < trackUris.length; b += batchSize) {
         const batch = trackUris.slice(b, b + batchSize);
         const ids = batch.map(u => u.split(':').pop()).filter(Boolean);
 
-        let success = false;
-        // 1. Endpoint estándar y probado de Spotify: PUT /me/tracks con JSON body
         try {
             await spotifyApi(token, `/me/tracks`, {
                 method: 'PUT',
                 body: JSON.stringify({ ids: ids })
             });
-            success = true;
+            saved += batch.length;
+            logMessage(`  └ Corazones guardados: ${saved} / ${trackUris.length}`);
         } catch (tracksErr) {
-            console.warn('PUT /me/tracks falló, probando fallback a /me/library:', tracksErr);
-            // 2. Fallback a /me/library?uris=...
+            console.warn('PUT /me/tracks falló, probando fallback /me/library:', tracksErr);
             try {
                 const urisParam = encodeURIComponent(batch.join(','));
-                await spotifyApi(token, `/me/library?uris=${urisParam}`, {
-                    method: 'PUT'
-                });
-                success = true;
+                await spotifyApi(token, `/me/library?uris=${urisParam}`, { method: 'PUT' });
+                saved += batch.length;
             } catch (libErr) {
                 throw tracksErr;
             }
-        }
-
-        if (success) {
-            saved += batch.length;
-            logMessage(`  └ Corazones guardados: ${saved} / ${trackUris.length}`);
         }
         await sleep(150);
     }
     return saved;
 }
 
-// Save/follow a public/editorial playlist directly to destination library
+// Save/follow Spotify playlist
 async function savePlaylistToDestinationLibrary(token, playlistId) {
-    // 1. Try legacy /followers (proven universal compatibility)
     try {
         await spotifyApi(token, `/playlists/${encodeURIComponent(playlistId)}/followers`, {
             method: 'PUT',
@@ -950,21 +1550,14 @@ async function savePlaylistToDestinationLibrary(token, playlistId) {
         });
         return true;
     } catch (e) {
-        console.warn('Followers falló, probando /me/library:', e);
-    }
-
-    // 2. Try modern /me/library
-    try {
         await spotifyApi(token, `/me/library?uris=spotify:playlist:${encodeURIComponent(playlistId)}`, {
             method: 'PUT'
         });
         return true;
-    } catch (e) {
-        console.warn('me/library falló:', e);
-        throw e;
     }
 }
 
+// Motor de transferencia Bidireccional
 async function executeTransfer() {
     setStep(4);
     state.isTransferring = true;
@@ -972,6 +1565,11 @@ async function executeTransfer() {
     const selectedPlaylists = state.playlists.filter(p => p.selected);
     const isPrivate = document.getElementById('opt-private').checked;
     const heartLikedSongs = document.getElementById('opt-heart-songs').checked;
+
+    const srcPlat = getSourcePlatform();
+    const dstPlat = getDestPlatform();
+    const srcToken = getSourceToken();
+    const dstToken = getDestToken();
 
     let totalTracksTransferred = 0;
     let completedPlaylists = 0;
@@ -987,17 +1585,22 @@ async function executeTransfer() {
     statPlaylists.textContent = `0 / ${selectedPlaylists.length}`;
     statTracks.textContent = '0';
     statStatus.textContent = 'Iniciando...';
-    logMessage(`🚀 Comenzando transferencia de ${selectedPlaylists.length} listas seleccionadas...`);
 
-    // Ensure we have destination profile
-    if (!state.destProfile || !state.destProfile.id) {
-        try {
-            state.destProfile = await spotifyApi(state.destToken, '/me');
-        } catch (e) {
-            console.warn('No se pudo refrescar perfil destino:', e);
+    const routeLabel = `${srcPlat.toUpperCase()} ➔ ${dstPlat.toUpperCase()}`;
+    logMessage(`🚀 Comenzando transferencia [${routeLabel}] de ${selectedPlaylists.length} listas...`);
+
+    // Perfil destino
+    let destUserId = '';
+    if (dstPlat === 'spotify') {
+        if (!state.destProfile || !state.destProfile.id) {
+            try {
+                state.destProfile = await spotifyApi(dstToken, '/me');
+            } catch (e) {
+                console.warn('No se pudo refrescar perfil destino Spotify:', e);
+            }
         }
+        destUserId = state.destProfile?.id || '';
     }
-    const destUserId = state.destProfile?.id || '';
 
     for (let i = 0; i < selectedPlaylists.length; i++) {
         const pl = selectedPlaylists[i];
@@ -1005,123 +1608,141 @@ async function executeTransfer() {
         try {
             currentTask.textContent = `[${i + 1}/${selectedPlaylists.length}] "${escapeHtml(pl.name)}"`;
             statStatus.textContent = `Procesando: ${escapeHtml(pl.name)}`;
+            logMessage(`📂 [${i + 1}/${selectedPlaylists.length}] Procesando lista: <strong>${escapeHtml(pl.name)}</strong>...`);
 
-            // Check if playlist is external/public (not owned by user)
-            const isExternal = !pl.isLikedSongs && pl.isOwned === false;
-
-            if (isExternal) {
-                logMessage(`📂 <strong>${escapeHtml(pl.name)}</strong> es una lista pública/de terceros.`);
-                logMessage(`  └ Guardándola directamente en tu nueva biblioteca...`);
-
-                await savePlaylistToDestinationLibrary(state.destToken, pl.id);
-
-                completedPlaylists++;
-                statPlaylists.textContent = `${completedPlaylists} / ${selectedPlaylists.length}`;
-
-                finalCreatedList.push({
-                    name: pl.name,
-                    url: `https://open.spotify.com/playlist/${pl.id}`,
-                    tracksCount: pl.tracksCount || 0
-                });
-
-                const percentage = Math.round((completedPlaylists / selectedPlaylists.length) * 100);
-                progressFill.style.width = `${percentage}%`;
-                progressFill.setAttribute('aria-valuenow', percentage);
-                progressPercent.textContent = `${percentage}%`;
-
-                logMessage(`✅ Lista <strong>${escapeHtml(pl.name)}</strong> guardada en tu biblioteca.`);
-                await sleep(250);
-                continue;
-            }
-
-            // Normal clone flow for user's own playlists or Liked Songs
-            logMessage(`📂 Procesando lista propia: <strong>${escapeHtml(pl.name)}</strong>...`);
-
+            // PASO A: Obtener pistas desde el origen
             let tracks = [];
             if (Array.isArray(pl.tracks) && pl.tracks.length > 0) {
-                // Si la playlist ya contiene canciones (respaldo JSON importado)
-                logMessage(`📂 Usando ${pl.tracks.length} canciones cargadas del respaldo JSON para: <strong>${escapeHtml(pl.name)}</strong>`);
-                tracks = pl.tracks.map(t => (typeof t === 'string' ? { uri: t } : t));
-            } else if (pl.isLikedSongs) {
-                tracks = await fetchLikedSongsTracks(state.sourceToken);
-                logMessage(`✔ Obtenidas ${tracks.length} canciones de Tus Me Gusta.`);
+                logMessage(`  └ Usando ${pl.tracks.length} canciones cargadas del respaldo JSON.`);
+                tracks = pl.tracks;
+            } else if (srcPlat === 'youtube') {
+                tracks = await fetchYouTubePlaylistTracks(srcToken, pl.id);
+                logMessage(`  ✔ Obtenidos ${tracks.length} videos de YouTube.`);
             } else {
-                try {
-                    tracks = await fetchPlaylistTracks(state.sourceToken, pl.id);
-                    logMessage(`✔ Obtenidas ${tracks.length} canciones.`);
-                } catch (readErr) {
-                    if (isForbidden(readErr)) {
-                        logMessage(`ℹ️ Lectura de pistas restringida por Spotify. Guardándola directamente en tu biblioteca...`);
-                        await savePlaylistToDestinationLibrary(state.destToken, pl.id);
-                        completedPlaylists++;
-                        statPlaylists.textContent = `${completedPlaylists} / ${selectedPlaylists.length}`;
-                        finalCreatedList.push({
-                            name: pl.name,
-                            url: `https://open.spotify.com/playlist/${pl.id}`,
-                            tracksCount: pl.tracksCount || 0
-                        });
-                        logMessage(`✅ Lista guardada en tu biblioteca.`);
-                        await sleep(250);
-                        continue;
-                    }
-                    throw readErr;
+                // Origen es Spotify
+                if (pl.isLikedSongs) {
+                    tracks = await fetchLikedSongsTracks(srcToken);
+                    logMessage(`  ✔ Obtenidas ${tracks.length} canciones de Tus Me Gusta.`);
+                } else {
+                    tracks = await fetchPlaylistTracks(srcToken, pl.id);
+                    logMessage(`  ✔ Obtenidas ${tracks.length} canciones.`);
                 }
             }
 
-            // Extract valid Spotify track URIs
-            const trackUris = tracks.map(t => t.uri).filter(uri => uri && uri.startsWith('spotify:track:'));
+            // PASO B: Destino YouTube Music
+            if (dstPlat === 'youtube') {
+                const createPlName = pl.isLikedSongs ? 'Mis Me Gusta (Spotify)' : pl.name;
+                logMessage(`  🛠 Creando playlist en YouTube Music: <strong>${escapeHtml(createPlName)}</strong>...`);
 
-            // Save liked songs with heart
-            if (pl.isLikedSongs && heartLikedSongs) {
-                currentTask.textContent = `Guardando ${trackUris.length} canciones en tus "Me Gusta"...`;
-                logMessage(`❤️ Añadiendo a tus "Canciones que te gustan" con corazón...`);
+                const newYtPl = await createYouTubePlaylist(
+                    dstToken,
+                    createPlName,
+                    pl.description || 'Migrada exitosamente con MusicTransferly',
+                    isPrivate
+                );
 
-                try {
-                    const heartsSaved = await saveLikedTracksToLibrary(state.destToken, trackUris);
-                    logMessage(`✅ ¡${heartsSaved} canciones marcadas con corazón ❤️ en tu biblioteca!`);
-                } catch (heartErr) {
-                    console.warn('Advertencia guardando corazones:', heartErr);
-                    if (isForbidden(heartErr)) {
-                        logMessage(`<span class="text-amber-400 font-semibold">⚠️ Permiso denegado para marcar corazones (403 Forbidden).</span>`);
-                        logMessage(`<span class="text-amber-300 text-xs block mt-1">💡 <strong>Solución rápida:</strong> Tu sesión de Cuenta Destino se inició antes de autorizar el permiso de biblioteca. Vuelve al Paso 3, haz clic en el botón azul <strong>«Cambiar cuenta destino»</strong> y pulsa «Aceptar» en Spotify para renovar los permisos.</span>`);
+                const ytPlaylistId = newYtPl.id;
+                let addedCount = 0;
+
+                for (let t = 0; t < tracks.length; t++) {
+                    const track = tracks[t];
+                    let videoId = track.videoId;
+
+                    // Si venimos de Spotify o JSON sin videoId, buscar el video en YouTube
+                    if (!videoId) {
+                        currentTask.textContent = `Buscando en YouTube: ${track.name} - ${track.artist}`;
+                        videoId = await searchYouTubeVideo(dstToken, track.name, track.artist);
+                    }
+
+                    if (videoId) {
+                        try {
+                            await addVideoToYouTubePlaylist(dstToken, ytPlaylistId, videoId);
+                            addedCount++;
+                            totalTracksTransferred++;
+                            statTracks.textContent = totalTracksTransferred;
+                        } catch (addErr) {
+                            console.warn(`Error al añadir video ${videoId}:`, addErr);
+                        }
                     } else {
-                        logMessage(`  ⚠️ Aviso en lote de corazones: ${escapeHtml(heartErr.message)}`);
+                        logMessage(`  ⚠️ No se encontró video en YouTube para: ${escapeHtml(track.name)} - ${escapeHtml(track.artist || '')}`);
+                    }
+
+                    // Pausa ligera para evitar exceder rate limit
+                    await sleep(100);
+                }
+
+                logMessage(`  ✅ Añadidos ${addedCount} / ${tracks.length} videos a la playlist de YouTube.`);
+                finalCreatedList.push({
+                    name: createPlName,
+                    url: `https://music.youtube.com/playlist?list=${ytPlaylistId}`,
+                    tracksCount: addedCount
+                });
+
+            } else {
+                // PASO C: Destino Spotify
+                let trackUris = [];
+
+                if (srcPlat === 'youtube') {
+                    // Mapear videos de YouTube a tracks de Spotify con limpieza de títulos
+                    logMessage(`  🔍 Emparejando canciones de YouTube con el catálogo de Spotify...`);
+                    for (let t = 0; t < tracks.length; t++) {
+                        const tr = tracks[t];
+                        currentTask.textContent = `Buscando en Spotify: ${tr.name}`;
+                        const uri = await searchSpotifyTrack(dstToken, tr.name, tr.artist);
+                        if (uri) {
+                            trackUris.push(uri);
+                        } else {
+                            logMessage(`  ⚠️ Sin coincidencia en Spotify: ${escapeHtml(tr.name)}`);
+                        }
+                        await sleep(80);
+                    }
+                    logMessage(`  ✔ Emparejadas ${trackUris.length} / ${tracks.length} canciones.`);
+                } else {
+                    // Origen Spotify directo
+                    trackUris = tracks.map(t => t.uri).filter(uri => uri && uri.startsWith('spotify:track:'));
+                }
+
+                // Guardar Me Gusta con corazón si corresponde
+                if (pl.isLikedSongs && heartLikedSongs && trackUris.length > 0) {
+                    currentTask.textContent = `Guardando en tus "Me Gusta"...`;
+                    logMessage(`  ❤️ Añadiendo a tus "Canciones que te gustan" con corazón...`);
+                    try {
+                        const heartsSaved = await saveLikedTracksToLibrary(dstToken, trackUris);
+                        logMessage(`  ✅ ¡${heartsSaved} canciones marcadas con corazón ❤️!`);
+                    } catch (hErr) {
+                        logMessage(`  ⚠️ Error al marcar corazones: ${escapeHtml(hErr.message)}`);
                     }
                 }
-            }
 
-            // Create new playlist on destination
-            const createPlName = pl.isLikedSongs ? 'Mis Me Gusta (Transferidos)' : pl.name;
-            logMessage(`🛠 Creando playlist <strong>${escapeHtml(createPlName)}</strong> en cuenta de destino...`);
+                // Crear playlist en Spotify
+                const createPlName = pl.isLikedSongs ? 'Mis Me Gusta (Transferidos)' : pl.name;
+                logMessage(`  🛠 Creando playlist <strong>${escapeHtml(createPlName)}</strong> en Spotify destino...`);
 
-            const newPlaylist = await createPlaylistOnDestination(
-                state.destToken,
-                destUserId,
-                createPlName,
-                pl.description || 'Migrada exitosamente con SpotTransfer',
-                !isPrivate
-            );
+                const newPlaylist = await createPlaylistOnDestination(
+                    dstToken,
+                    destUserId,
+                    createPlName,
+                    pl.description || 'Migrada exitosamente con MusicTransferly',
+                    !isPrivate
+                );
 
-            if (!newPlaylist || !newPlaylist.id) {
-                throw new Error('Spotify no devolvió el ID de la nueva lista.');
-            }
+                const newPlaylistId = newPlaylist.id;
+                finalCreatedList.push({
+                    name: createPlName,
+                    url: newPlaylist.external_urls?.spotify || `https://open.spotify.com/playlist/${newPlaylistId}`,
+                    tracksCount: trackUris.length
+                });
 
-            const newPlaylistId = newPlaylist.id;
-            finalCreatedList.push({
-                name: createPlName,
-                url: newPlaylist.external_urls?.spotify || `https://open.spotify.com/playlist/${newPlaylistId}`,
-                tracksCount: tracks.length
-            });
-
-            // Add tracks in chunks of 100 (only valid Spotify track URIs)
-            if (trackUris.length > 0) {
-                for (let b = 0; b < trackUris.length; b += 100) {
-                    const batch = trackUris.slice(b, b + 100);
-                    await addItemsToPlaylist(state.destToken, newPlaylistId, batch);
-                    totalTracksTransferred += batch.length;
-                    statTracks.textContent = totalTracksTransferred;
-                    logMessage(`  └ Canciones añadidas a la lista: ${Math.min(b + 100, trackUris.length)} / ${trackUris.length}`);
-                    await sleep(150);
+                // Añadir canciones en lotes de 100
+                if (trackUris.length > 0) {
+                    for (let b = 0; b < trackUris.length; b += 100) {
+                        const batch = trackUris.slice(b, b + 100);
+                        await addItemsToPlaylist(dstToken, newPlaylistId, batch);
+                        totalTracksTransferred += batch.length;
+                        statTracks.textContent = totalTracksTransferred;
+                        logMessage(`  └ Canciones añadidas: ${Math.min(b + 100, trackUris.length)} / ${trackUris.length}`);
+                        await sleep(150);
+                    }
                 }
             }
 
@@ -1133,26 +1754,22 @@ async function executeTransfer() {
             progressFill.setAttribute('aria-valuenow', percentage);
             progressPercent.textContent = `${percentage}%`;
 
-            logMessage(`✅ Lista <strong>${escapeHtml(createPlName)}</strong> finalizada con éxito.`);
-            await sleep(200);
+            logMessage(`✅ Lista <strong>${escapeHtml(pl.name)}</strong> transferida con éxito.`);
+            await sleep(250);
 
         } catch (err) {
-            console.error(`Error transfiriendo lista ${escapeHtml(pl.name)}:`, err);
+            console.error(`Error transfiriendo lista ${pl.name}:`, err);
             logMessage(`<span class="text-red-400">❌ Error al transferir "${escapeHtml(pl.name)}": ${escapeHtml(err.message)}</span>`);
-
-            if (isForbidden(err)) {
-                logMessage(`<span class="text-amber-400 font-bold">⚠️ Tu cuenta de DESTINO fue rechazada con 403 Forbidden. Asegúrate de agregar el correo de tu cuenta nueva en "Users and Access" de tu Spotify Developer Dashboard.</span>`);
-            }
         }
     }
 
     statStatus.textContent = '¡Completado!';
     currentTask.textContent = 'Proceso finalizado.';
-    logMessage(`🎉 Proceso concluido. Total de listas creadas/guardadas: ${completedPlaylists}.`);
+    logMessage(`🎉 Proceso concluido. Total de listas creadas: ${completedPlaylists}.`);
 
-    await sleep(1500);
+    await sleep(1200);
 
-    // Show Step 5
+    // Step 5: Completado
     document.getElementById('final-playlists-count').textContent = completedPlaylists;
     document.getElementById('final-tracks-count').textContent = totalTracksTransferred;
 
@@ -1160,19 +1777,18 @@ async function executeTransfer() {
     finalListContainer.innerHTML = '';
 
     if (finalCreatedList.length === 0) {
-        finalListContainer.innerHTML = `<div class="text-gray-400 py-3 text-center">No se pudo crear ninguna lista. Revisa los mensajes en la consola en vivo.</div>`;
+        finalListContainer.innerHTML = `<div class="text-gray-400 py-3 text-center">No se pudo crear ninguna lista. Revisa los mensajes en la consola.</div>`;
     } else {
         finalCreatedList.forEach(item => {
             const row = document.createElement('div');
             row.className = 'flex items-center justify-between p-2 rounded-lg bg-spotify-dark/60 border border-spotify-border/60 hover:border-spotify-green transition';
-            
-            // Validación estricta de esquema para prevenir DOM XSS
-            const safeUrl = (typeof item.url === 'string' && (item.url.startsWith('https://open.spotify.com/') || item.url.startsWith('http://127.0.0.1:')))
+
+            const safeUrl = (typeof item.url === 'string' && (item.url.startsWith('https://open.spotify.com/') || item.url.startsWith('https://music.youtube.com/') || item.url.startsWith('https://www.youtube.com/')))
                 ? item.url
-                : 'https://open.spotify.com/';
+                : '#';
 
             row.innerHTML = `
-                <span class="font-medium text-white truncate mr-2">🎵 ${escapeHtml(item.name)} <span class="text-gray-500">(${Number(item.tracksCount) || 0} tracks)</span></span>
+                <span class="font-medium text-white truncate mr-2">🎵 ${escapeHtml(item.name)} <span class="text-gray-500">(${Number(item.tracksCount) || 0} canciones)</span></span>
                 <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-spotify-green hover:underline flex-shrink-0 flex items-center gap-1">
                     Abrir ↗
                 </a>
@@ -1185,7 +1801,7 @@ async function executeTransfer() {
     setStep(5);
 }
 
-// Alerta ante cierre accidental durante transferencia activa
+// Alerta ante cierre accidental
 window.addEventListener('beforeunload', (e) => {
     if (state.isTransferring) {
         e.preventDefault();
@@ -1193,7 +1809,7 @@ window.addEventListener('beforeunload', (e) => {
     }
 });
 
-// Reset button
+// Reinicios
 document.getElementById('btn-restart').addEventListener('click', () => {
     setStep(2);
 });
@@ -1207,7 +1823,7 @@ document.getElementById('btn-reset-app').addEventListener('click', () => {
 });
 
 // ==========================================
-// 7. Init & OAuth Callback Handling
+// 11. Init & OAuth Callback Handling
 // ==========================================
 async function init() {
     const urlParams = new URLSearchParams(window.location.search);
@@ -1215,58 +1831,88 @@ async function init() {
     const authError = urlParams.get('error');
 
     if (authError) {
-        alert('Error de autorización en Spotify: ' + authError);
+        alert('Error de autorización: ' + authError);
         window.history.replaceState({}, document.title, '/');
     } else if (code) {
-        const expectedState = sessionStorage.getItem('spot_oauth_state');
-        sessionStorage.removeItem('spot_oauth_state');
+        const expectedState = sessionStorage.getItem('oauth_expected_state');
+        const platform = sessionStorage.getItem('oauth_platform') || 'spotify';
+        const mode = sessionStorage.getItem('oauth_auth_mode') || 'source';
+        const verifier = sessionStorage.getItem('oauth_code_verifier') || '';
+
+        sessionStorage.removeItem('oauth_expected_state');
+        sessionStorage.removeItem('oauth_code_verifier');
+        window.history.replaceState({}, document.title, '/');
+
         if (!expectedState || urlParams.get('state') !== expectedState) {
-            window.history.replaceState({}, document.title, '/');
             alert('La respuesta de autorización no corresponde a esta sesión. Vuelve a conectar tu cuenta.');
-            setStep(2);
+            setStep(mode === 'source' ? 2 : 3);
             return;
         }
-        const mode = localStorage.getItem('spot_auth_mode') || 'source';
-        const verifier = localStorage.getItem('spot_code_verifier') || '';
-        localStorage.removeItem('spot_code_verifier');
-
-        window.history.replaceState({}, document.title, '/');
 
         if (!verifier) {
             alert('No se encontró el código de verificación (PKCE). Por favor vuelve a hacer clic en Conectar.');
-            setStep(2);
+            setStep(mode === 'source' ? 2 : 3);
             return;
         }
 
         try {
-            const tokenData = await exchangeCode(code, verifier);
-            if (tokenData.access_token) {
-                if (mode === 'source') {
-                    state.sourceToken = tokenData.access_token;
-                    sessionStorage.setItem('spot_source_token', tokenData.access_token);
-                    if (tokenData.refresh_token) {
-                        state.sourceRefreshToken = tokenData.refresh_token;
-                        sessionStorage.setItem('spot_source_refresh_token', tokenData.refresh_token);
+            if (platform === 'google') {
+                const tokenData = await exchangeGoogleCode(code, verifier);
+                if (tokenData.access_token) {
+                    if (mode === 'source') {
+                        state.ytSourceToken = tokenData.access_token;
+                        sessionStorage.setItem('yt_source_token', tokenData.access_token);
+                        if (tokenData.refresh_token) {
+                            state.ytSourceRefreshToken = tokenData.refresh_token;
+                            sessionStorage.setItem('yt_source_refresh_token', tokenData.refresh_token);
+                        }
+                        setStep(2);
+                        await loadSourceProfileAndPlaylists();
+                        return;
+                    } else {
+                        state.ytDestToken = tokenData.access_token;
+                        sessionStorage.setItem('yt_dest_token', tokenData.access_token);
+                        if (tokenData.refresh_token) {
+                            state.ytDestRefreshToken = tokenData.refresh_token;
+                            sessionStorage.setItem('yt_dest_refresh_token', tokenData.refresh_token);
+                        }
+                        setStep(3);
+                        updateDestinationSummary();
+                        await checkDestinationProfile();
+                        return;
                     }
-                    setStep(2);
-                    await loadSourceProfileAndPlaylists();
-                    return;
-                } else if (mode === 'destination') {
-                    state.destToken = tokenData.access_token;
-                    sessionStorage.setItem('spot_dest_token', tokenData.access_token);
-                    if (tokenData.refresh_token) {
-                        state.destRefreshToken = tokenData.refresh_token;
-                        sessionStorage.setItem('spot_dest_refresh_token', tokenData.refresh_token);
-                    }
-                    setStep(3);
-                    updateDestinationSummary();
-                    await checkDestinationProfile();
-                    return;
+                } else {
+                    throw new Error(tokenData.error_description || tokenData.error || 'Respuesta no válida de Google');
                 }
             } else {
-                const errMsg = tokenData.error_description || tokenData.error || 'Respuesta no válida del servidor';
-                console.error('Error al obtener token de Spotify.');
-                alert(`Error de autenticación con Spotify: ${errMsg}`);
+                // Spotify
+                const tokenData = await exchangeSpotifyCode(code, verifier);
+                if (tokenData.access_token) {
+                    if (mode === 'source') {
+                        state.sourceToken = tokenData.access_token;
+                        sessionStorage.setItem('spot_source_token', tokenData.access_token);
+                        if (tokenData.refresh_token) {
+                            state.sourceRefreshToken = tokenData.refresh_token;
+                            sessionStorage.setItem('spot_source_refresh_token', tokenData.refresh_token);
+                        }
+                        setStep(2);
+                        await loadSourceProfileAndPlaylists();
+                        return;
+                    } else {
+                        state.destToken = tokenData.access_token;
+                        sessionStorage.setItem('spot_dest_token', tokenData.access_token);
+                        if (tokenData.refresh_token) {
+                            state.destRefreshToken = tokenData.refresh_token;
+                            sessionStorage.setItem('spot_dest_refresh_token', tokenData.refresh_token);
+                        }
+                        setStep(3);
+                        updateDestinationSummary();
+                        await checkDestinationProfile();
+                        return;
+                    }
+                } else {
+                    throw new Error(tokenData.error_description || tokenData.error || 'Respuesta no válida de Spotify');
+                }
             }
         } catch (err) {
             console.error('Error al intercambiar código:', err);
@@ -1274,21 +1920,27 @@ async function init() {
         }
     }
 
-    // Default view routing based on existing state
-    if (!state.clientId) {
+    // Default routing
+    const srcPlat = getSourcePlatform();
+    const dstPlat = getDestPlatform();
+    const needsSpot = srcPlat === 'spotify' || dstPlat === 'spotify';
+    const needsGoogle = srcPlat === 'youtube' || dstPlat === 'youtube';
+
+    if ((needsSpot && !state.clientId) || (needsGoogle && !state.googleClientId)) {
         setStep(1);
-    } else if (state.destToken && state.playlists.length > 0) {
+    } else if (getDestToken() && state.playlists.length > 0) {
         setStep(3);
         updateDestinationSummary();
         checkDestinationProfile();
-    } else if (state.sourceToken) {
+    } else if (getSourceToken()) {
         setStep(2);
         if (state.playlists.length > 0) {
             document.getElementById('source-content').classList.remove('hidden');
             renderPlaylists();
-            if (state.sourceProfile) {
-                document.getElementById('source-name').textContent = state.sourceProfile.display_name || state.sourceProfile.id;
-                document.getElementById('source-email').textContent = state.sourceProfile.email || `ID: ${state.sourceProfile.id}`;
+            const prof = getSourceProfile();
+            if (prof) {
+                document.getElementById('source-name').textContent = prof.display_name || prof.name || prof.id;
+                document.getElementById('source-email').textContent = prof.email || `ID: ${prof.id}`;
             }
         } else {
             loadSourceProfileAndPlaylists();

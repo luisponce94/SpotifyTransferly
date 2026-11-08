@@ -1,19 +1,22 @@
 {
-  "name": "spot-transfer-app",
-  "version": "1.0.1",
-  "description": "Aplicación web local gratuita para transferir playlists y canciones entre cuentas de Spotify",
+  "name": "musictransferly",
+  "version": "1.1.0",
+  "description": "Migrador bidireccional gratuito y local de playlists entre Spotify y YouTube Music con OAuth PKCE",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "keywords": [
     "spotify",
+    "youtube-music",
     "playlist-transfer",
-    "migration"
+    "migration",
+    "pkce",
+    "local-first"
   ],
-  "author": "",
+  "author": "Luis Ponce",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   }
 }

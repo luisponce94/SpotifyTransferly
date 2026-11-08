@@ -46,7 +46,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.spotify.com https://accounts.spotify.com;");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: https://*.googleusercontent.com https://*.ytimg.com; connect-src 'self' https://api.spotify.com https://accounts.spotify.com https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com;");
     if (!allowedHosts.includes(hostHeader) ||
         (req.headers.origin && !allowedHosts.some(host => req.headers.origin === `http://${host}`))) {
         res.writeHead(403);
@@ -93,6 +93,14 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             if (destroyed) return;
             try {
+                // Saneamiento de parámetros x-www-form-urlencoded
+                const parsedBody = new URLSearchParams(body).toString();
+                if (!parsedBody) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Cuerpo de petición vacío o malformado' }));
+                    return;
+                }
+
                 console.log('[Token Proxy] Intercambiando código con Spotify...');
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -100,7 +108,7 @@ const server = http.createServer(async (req, res) => {
                 const spotifyRes = await fetch('https://accounts.spotify.com/api/token', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: body,
+                    body: parsedBody,
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);
@@ -115,6 +123,63 @@ const server = http.createServer(async (req, res) => {
                 res.end(data);
             } catch (err) {
                 console.error('[Token Proxy Error]:', err);
+                res.writeHead(502, {
+                    'Content-Type': 'application/json',
+                });
+                res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+            }
+        });
+        return;
+    }
+
+    // Backend Proxy for Google / YouTube Token Exchange
+    if (pathname === '/api/youtube/token' && req.method === 'POST') {
+        let body = '';
+        let destroyed = false;
+
+        req.on('data', chunk => {
+            if (destroyed) return;
+            body += chunk;
+            if (body.length > 16384) {
+                destroyed = true;
+                res.writeHead(413, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Payload Too Large' }));
+                req.destroy();
+            }
+        });
+
+        req.on('end', async () => {
+            if (destroyed) return;
+            try {
+                // Saneamiento de parámetros x-www-form-urlencoded
+                const parsedBody = new URLSearchParams(body).toString();
+                if (!parsedBody) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Cuerpo de petición vacío o malformado' }));
+                    return;
+                }
+
+                console.log('[YouTube Token Proxy] Intercambiando código con Google...');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+                const googleRes = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: parsedBody,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+
+                const data = await googleRes.text();
+                console.log(`[YouTube Token Proxy] Respuesta Google (HTTP ${googleRes.status})`);
+
+                res.writeHead(googleRes.status, {
+                    'Content-Type': 'application/json',
+                });
+                res.end(data);
+            } catch (err) {
+                console.error('[YouTube Token Proxy Error]:', err);
                 res.writeHead(502, {
                     'Content-Type': 'application/json',
                 });

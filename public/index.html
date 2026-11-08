@@ -1,25 +1,30 @@
 <!DOCTYPE html>
-<html lang="es" class="dark">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SpotTransfer - Migrador de Playlists Gratis</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%231ed760'><path d='M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.208-2.35-1.436-5.308-1.76-8.792-.963-.334.076-.666-.133-.743-.467-.076-.334.133-.666.467-.743 3.808-.87 7.076-.505 9.717 1.108.294.18.387.563.208.857zm1.224-2.72c-.227.368-.71.485-1.077.258-2.69-1.654-6.79-2.133-9.972-1.168-.415.126-.856-.11-1.002-.524-.127-.414.11-.856.524-.982 3.633-1.103 8.148-.568 11.269 1.34.367.226.484.71.258 1.076zm.105-2.835C14.692 8.95 8.085 8.73 4.707 9.756c-.494.15-1.02-.13-1.17-.624-.15-.494.13-1.02.624-1.17 3.945-1.198 11.233-.946 15.05 1.32.443.263.587.84.324 1.283-.263.443-.84.588-1.284.324z'/></svg>">
-    <!-- Tailwind CSS CDN -->
+    <title>MusicTransferly - Migrador Bidireccional: Spotify ⇄ YouTube Music</title>
+    <!-- Tailwind CSS (Play CDN para entorno local) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
                         spotify: {
-                            green: '#1ed760',
-                            hover: '#1fdf64',
+                            green: '#1db954',
+                            hover: '#1ed760',
                             dark: '#121212',
                             card: '#181818',
                             hovercard: '#282828',
                             border: '#2a2a2a'
+                        },
+                        youtube: {
+                            red: '#ff0000',
+                            hover: '#cc0000',
+                            dark: '#0f0f0f',
+                            card: '#1f1f1f',
+                            border: '#333333'
                         }
                     }
                 }
@@ -34,16 +39,16 @@
     <header class="border-b border-spotify-border bg-spotify-dark/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4">
         <div class="max-w-6xl mx-auto flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-full bg-spotify-green flex items-center justify-center text-black shadow-lg shadow-spotify-green/20">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-spotify-green to-red-600 flex items-center justify-center text-white shadow-lg">
                     <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24">
                         <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.208-2.35-1.436-5.308-1.76-8.792-.963-.334.076-.666-.133-.743-.467-.076-.334.133-.666.467-.743 3.808-.87 7.076-.505 9.717 1.108.294.18.387.563.208.857zm1.224-2.72c-.227.368-.71.485-1.077.258-2.69-1.654-6.79-2.133-9.972-1.168-.415.126-.856-.11-1.002-.524-.127-.414.11-.856.524-.982 3.633-1.103 8.148-.568 11.269 1.34.367.226.484.71.258 1.076zm.105-2.835C14.692 8.95 8.085 8.73 4.707 9.756c-.494.15-1.02-.13-1.17-.624-.15-.494.13-1.02.624-1.17 3.945-1.198 11.233-.946 15.05 1.32.443.263.587.84.324 1.283-.263.443-.84.588-1.284.324z"/>
                     </svg>
                 </div>
                 <div>
                     <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                        SpotTransfer <span class="text-xs bg-spotify-green/20 text-spotify-green border border-spotify-green/30 px-2 py-0.5 rounded-full font-semibold">100% Gratis</span>
+                        MusicTransferly <span class="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-semibold">Spotify ⇄ YouTube Music</span>
                     </h1>
-                    <p class="text-xs text-gray-400">Migrador directo de Playlists entre Cuentas de Spotify</p>
+                    <p class="text-xs text-gray-400">Migrador bidireccional de Playlists entre plataformas de música</p>
                 </div>
             </div>
 
@@ -77,7 +82,7 @@
                     <div id="step-dot-2" class="w-10 h-10 rounded-full bg-spotify-card border-2 border-spotify-border text-gray-400 font-bold flex items-center justify-center text-sm transition-all">
                         2
                     </div>
-                    <span class="text-xs font-medium text-gray-400 mt-2">Cuenta Origen</span>
+                    <span id="step-label-2" class="text-xs font-medium text-gray-400 mt-2">Cuenta Origen</span>
                 </li>
 
                 <!-- Step 3 -->
@@ -85,7 +90,7 @@
                     <div id="step-dot-3" class="w-10 h-10 rounded-full bg-spotify-card border-2 border-spotify-border text-gray-400 font-bold flex items-center justify-center text-sm transition-all">
                         3
                     </div>
-                    <span class="text-xs font-medium text-gray-400 mt-2">Cuenta Destino</span>
+                    <span id="step-label-3" class="text-xs font-medium text-gray-400 mt-2">Cuenta Destino</span>
                 </li>
 
                 <!-- Step 4 -->
@@ -98,46 +103,124 @@
             </ol>
         </nav>
 
-        <!-- VIEW 1: Configurar Client ID -->
+        <!-- VIEW 1: Configurar Ruta y Credenciales -->
         <section id="view-step-1" class="space-y-6">
-            <div class="bg-spotify-card border border-spotify-border rounded-2xl p-6 md:p-8 shadow-xl">
-                <h2 class="text-2xl font-bold text-white mb-2">Paso 1: Configura tu Spotify Developer App</h2>
-                <p class="text-gray-400 text-sm mb-6 leading-relaxed">
-                    Spotify requiere una <strong class="text-white">Spotify Developer App</strong> para permitir que esta aplicación lea tus listas y las cree en tu otra cuenta. Crear una es <strong class="text-spotify-green">100% gratis</strong> y te tomará 1 minuto.
-                </p>
-
-                <!-- Steps Guide Box -->
-                <div class="bg-black/60 border border-spotify-border rounded-xl p-5 mb-6 space-y-4">
-                    <h3 class="text-sm font-semibold text-white uppercase tracking-wider flex items-center gap-2">
-                        <svg class="w-4 h-4 text-spotify-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        Instrucciones rápidas (Solo lo haces una vez):
-                    </h3>
-                    <ol class="text-sm text-gray-300 space-y-2 list-decimal list-inside pl-1">
-                        <li>Entra al <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" class="text-spotify-green underline hover:text-spotify-hover font-semibold">Spotify Developer Dashboard</a> e inicia sesión con tu cuenta de Spotify.</li>
-                        <li>Haz clic en el botón <strong class="text-white">«Create app»</strong>.</li>
-                        <li>Ponle de nombre: <strong class="text-white">SpotTransfer</strong> (puedes poner lo que quieras).</li>
-                        <li>
-                            En el campo <strong class="text-white">Redirect URIs</strong>, agrega exactamente esta dirección IP:
-                            <div class="mt-1 flex items-center gap-2">
-                                <code id="redirect-uri-display" class="bg-spotify-dark border border-spotify-border px-3 py-1 rounded text-spotify-green font-mono text-xs select-all">http://127.0.0.1:3000/callback</code>
-                                <button type="button" id="btn-copy-uri" class="text-xs bg-spotify-border hover:bg-gray-700 text-white px-2.5 py-1 rounded transition">Copiar</button>
-                            </div>
-                            <p class="text-[11px] text-amber-400/90 mt-1">⚠️ <strong>Importante:</strong> Spotify ya no permite escribir <code>localhost</code> por motivos de seguridad; exige usar <code>127.0.0.1</code>.</p>
-                        </li>
-                        <li>En "¿Which API/SDKs are you planning to use?", marca <strong class="text-white">Web API</strong>.</li>
-                        <li>Acepta los términos y haz clic en <strong class="text-white">Save</strong>.</li>
-                        <li>Entra en <strong class="text-white">Settings</strong> de tu nueva app, copia tu <strong class="text-white">Client ID</strong> y pégalo abajo.</li>
-                    </ol>
+            <div class="bg-spotify-card border border-spotify-border rounded-2xl p-6 md:p-8 shadow-xl space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-1">Paso 1: Selecciona la ruta de migración</h2>
+                    <p class="text-gray-400 text-sm">
+                        Elige qué plataforma tienes como origen y hacia cuál deseas transferir tus listas.
+                    </p>
                 </div>
 
-                <!-- Client ID Form -->
-                <form id="form-config" class="space-y-4">
+                <!-- Mode Selector Cards -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5" id="transfer-mode-selector">
+                    <button type="button" data-mode="spotify-to-yt" class="route-card p-4 rounded-xl border-2 border-spotify-green bg-spotify-dark/80 text-left transition flex items-center justify-between">
+                        <div>
+                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                <span class="text-spotify-green">🟢 Spotify</span> ➔ <span class="text-red-500">🔴 YouTube Music</span>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1">Transfiere tus playlists de Spotify a YouTube Music</div>
+                        </div>
+                        <span class="route-check text-spotify-green font-bold text-xl">✓</span>
+                    </button>
+
+                    <button type="button" data-mode="yt-to-spotify" class="route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100">
+                        <div>
+                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                <span class="text-red-500">🔴 YouTube Music</span> ➔ <span class="text-spotify-green">🟢 Spotify</span>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1">Transfiere tus playlists de YouTube a tu cuenta de Spotify</div>
+                        </div>
+                        <span class="route-check text-spotify-green font-bold text-xl hidden">✓</span>
+                    </button>
+
+                    <button type="button" data-mode="spotify-to-spotify" class="route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100">
+                        <div>
+                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                <span class="text-spotify-green">🟢 Spotify</span> ➔ <span class="text-spotify-green">🟢 Spotify</span>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1">Clonar canciones entre dos cuentas de Spotify</div>
+                        </div>
+                        <span class="route-check text-spotify-green font-bold text-xl hidden">✓</span>
+                    </button>
+
+                    <button type="button" data-mode="yt-to-yt" class="route-card p-4 rounded-xl border border-spotify-border bg-spotify-card/50 text-left transition flex items-center justify-between opacity-70 hover:opacity-100">
+                        <div>
+                            <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                <span class="text-red-500">🔴 YouTube Music</span> ➔ <span class="text-red-500">🔴 YouTube Music</span>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1">Clonar canciones entre dos cuentas de Google/YouTube</div>
+                        </div>
+                        <span class="route-check text-spotify-green font-bold text-xl hidden">✓</span>
+                    </button>
+                </div>
+
+                <!-- Shared Redirect URI Box -->
+                <div class="bg-black/50 border border-spotify-border rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
                     <div>
-                        <label for="input-client-id" class="block text-sm font-medium text-gray-300 mb-1">Tu Spotify Client ID:</label>
-                        <input type="text" id="input-client-id" required placeholder="Ej: 3a7b9c1d8e2f..." class="w-full bg-spotify-dark border border-spotify-border focus:border-spotify-green focus:ring-1 focus:ring-spotify-green rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                        <span class="text-gray-400">URI de redireccionamiento local autorizada (Redirect URI):</span>
+                        <div class="mt-1 font-mono text-spotify-green text-sm select-all" id="redirect-uri-display">http://127.0.0.1:3000/callback</div>
                     </div>
-                    <button type="submit" class="w-full bg-spotify-green hover:bg-spotify-hover text-black font-bold py-3.5 px-6 rounded-xl transition duration-200 flex items-center justify-center gap-2 text-base shadow-lg shadow-spotify-green/20">
-                        Guardar y Continuar al Paso 2
+                    <button type="button" id="btn-copy-uri" class="bg-spotify-border hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg transition whitespace-nowrap">
+                        Copiar URI
+                    </button>
+                </div>
+
+                <!-- Guide Collapsible: Spotify -->
+                <details id="guide-spotify" class="group bg-black/60 border border-spotify-border rounded-xl p-4 text-xs text-gray-300">
+                    <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                            <span class="text-spotify-green font-bold">🟢 Guía:</span> ¿Cómo obtener tu Spotify Client ID gratis? (1 min)
+                        </span>
+                        <span class="text-gray-500 group-open:rotate-180 transition">▼</span>
+                    </summary>
+                    <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
+                        <li>Entra al <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" class="text-spotify-green underline font-bold">Spotify Developer Dashboard</a> e inicia sesión.</li>
+                        <li>Haz clic en <strong class="text-white">Create app</strong> y ponle de nombre <strong>SpotTransfer</strong>.</li>
+                        <li>En <strong class="text-white">Redirect URIs</strong> pega: <code class="text-spotify-green font-mono">http://127.0.0.1:3000/callback</code></li>
+                        <li>En "¿Which API/SDKs are you planning to use?", marca <strong class="text-white">Web API</strong> y guarda los cambios.</li>
+                        <li>En <strong class="text-white">Settings</strong> de tu app, copia tu <strong class="text-white">Client ID</strong> y pégalo abajo.</li>
+                    </ol>
+                </details>
+
+                <!-- Guide Collapsible: Google / YouTube -->
+                <details id="guide-youtube" class="group bg-black/60 border border-spotify-border rounded-xl p-4 text-xs text-gray-300">
+                    <summary class="font-semibold text-white cursor-pointer flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                            <span class="text-red-500 font-bold">🔴 Guía:</span> ¿Cómo obtener tu Google / YouTube Client ID gratis? (2 min)
+                        </span>
+                        <span class="text-gray-500 group-open:rotate-180 transition">▼</span>
+                    </summary>
+                    <ol class="mt-3 space-y-1.5 list-decimal list-inside pl-1 text-gray-300 leading-relaxed border-t border-spotify-border/40 pt-2.5">
+                        <li>Entra a <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" class="text-red-400 underline font-bold">Google Cloud Console</a> y crea un proyecto gratuito.</li>
+                        <li>Ve a <strong class="text-white">APIs y servicios &rarr; Biblioteca</strong>, busca <strong class="text-white">YouTube Data API v3</strong> y haz clic en <strong class="text-white">Habilitar</strong>.</li>
+                        <li>En <strong class="text-white">Pantalla de consentimiento de OAuth</strong>, selecciona tipo <em>Externo</em> y guarda. En usuarios de prueba agrega tu correo de Google.</li>
+                        <li>En <strong class="text-white">Credenciales &rarr; Crear credenciales &rarr; ID de cliente de OAuth</strong>, elige tipo <strong class="text-white">Aplicación web</strong>.</li>
+                        <li>En <strong class="text-white">URIs de redireccionamiento autorizados</strong>, agrega: <code class="text-red-400 font-mono">http://127.0.0.1:3000/callback</code></li>
+                        <li>Guarda, copia el <strong class="text-white">ID de cliente</strong> resultante (termina en <code>.apps.googleusercontent.com</code>) y pégalo abajo.</li>
+                        <li class="pt-1 text-amber-300">💡 <strong>Nota sobre cuotas de YouTube:</strong> Google Cloud otorga 10,000 unidades gratuitas al día. Cada búsqueda de canción consume 100 unidades (~100 canciones/día). Si transfieres bibliotecas muy extensas, hazlo por tandas diarias o solicita aumento de cuota gratuito en la consola.</li>
+                    </ol>
+                </details>
+
+                <!-- Form: Client IDs -->
+                <form id="form-config" class="space-y-4">
+                    <div id="field-spotify-client-id">
+                        <label for="input-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                            <span class="text-spotify-green">🟢</span> Spotify Client ID:
+                        </label>
+                        <input type="text" id="input-client-id" placeholder="Ej: 3a7b9c1d8e2f..." class="w-full bg-spotify-dark border border-spotify-border focus:border-spotify-green focus:ring-1 focus:ring-spotify-green rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                    </div>
+
+                    <div id="field-google-client-id">
+                        <label for="input-google-client-id" class="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1.5">
+                            <span class="text-red-500">🔴</span> Google / YouTube Client ID:
+                        </label>
+                        <input type="text" id="input-google-client-id" placeholder="Ej: 123456789-abcdef.apps.googleusercontent.com" class="w-full bg-spotify-dark border border-spotify-border focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-gray-600 transition outline-none">
+                    </div>
+
+                    <button type="submit" class="w-full bg-gradient-to-r from-spotify-green to-emerald-500 hover:from-spotify-hover hover:to-emerald-400 text-black font-bold py-3.5 px-6 rounded-xl transition duration-200 flex items-center justify-center gap-2 text-base shadow-lg shadow-spotify-green/20">
+                        Guardar Configuración y Continuar al Paso 2
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                     </button>
                 </form>
@@ -154,21 +237,20 @@
                             <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
                         </div>
                         <div>
-                            <span class="text-xs uppercase tracking-wider text-spotify-green font-semibold">Cuenta de Origen (Donde está tu música)</span>
+                            <span id="source-platform-badge" class="text-xs uppercase tracking-wider text-spotify-green font-semibold">Cuenta de Origen</span>
                             <h3 id="source-name" class="text-xl font-bold text-white">No conectada</h3>
                             <p id="source-email" class="text-xs text-gray-400">Inicia sesión para escanear tus listas</p>
                         </div>
                     </div>
                     <div>
                         <button id="btn-login-source" class="bg-spotify-green hover:bg-spotify-hover text-black font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-spotify-green/20">
-                            <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.208-2.35-1.436-5.308-1.76-8.792-.963-.334.076-.666-.133-.743-.467-.076-.334.133-.666.467-.743 3.808-.87 7.076-.505 9.717 1.108.294.18.387.563.208.857zm1.224-2.72c-.227.368-.71.485-1.077.258-2.69-1.654-6.79-2.133-9.972-1.168-.415.126-.856-.11-1.002-.524-.127-.414.11-.856.524-.982 3.633-1.103 8.148-.568 11.269 1.34.367.226.484.71.258 1.076zm.105-2.835C14.692 8.95 8.085 8.73 4.707 9.756c-.494.15-1.02-.13-1.17-.624-.15-.494.13-1.02.624-1.17 3.945-1.198 11.233-.946 15.05 1.32.443.263.587.84.324 1.283-.263.443-.84.588-1.284.324z"/></svg>
                             Conectar Cuenta de Origen
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- 403 Error Helper Banner -->
+            <!-- 403 Error Helper Banner for Spotify -->
             <div id="source-403-banner" class="bg-amber-500/10 border-2 border-amber-500/50 rounded-2xl p-6 text-amber-200 text-sm hidden space-y-4 shadow-xl">
                 <div class="flex items-start gap-4">
                     <div class="p-2 bg-amber-500/20 rounded-xl text-amber-400 flex-shrink-0">
@@ -181,23 +263,14 @@
                                 Spotify crea las aplicaciones nuevas en <strong class="text-white">Modo de Desarrollo</strong>. Por seguridad de privacidad, Spotify <strong class="text-amber-300">bloquea cualquier cuenta</strong> que no esté agregada explícitamente en la lista de usuarios autorizados del Developer Dashboard.
                             </p>
                         </div>
-
                         <div class="bg-black/60 p-4 rounded-xl border border-amber-500/30 text-xs text-gray-200 space-y-2.5">
                             <strong class="text-spotify-green text-sm block font-bold">Cómo resolverlo en 1 minuto:</strong>
-                            <ol class="list-decimal list-inside space-y-2 pl-1 leading-relaxed">
-                                <li>Entra al <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" class="text-spotify-green underline font-bold hover:text-spotify-hover">Spotify Developer Dashboard</a> y haz clic en tu app <strong>SpotTransfer</strong>.</li>
-                                <li>Haz clic en <strong class="text-white">Settings</strong> (arriba a la derecha) o busca la sección <strong class="text-white">Users and Access</strong> (o <em>User Management</em>).</li>
-                                <li>Haz clic en el botón <strong class="text-white">Add new user</strong>.</li>
-                                <li>Ingresa el <strong>Nombre</strong> y el <strong>Correo de Spotify</strong> de:
-                                    <ul class="list-disc list-inside ml-4 mt-1 text-amber-300 font-semibold space-y-1">
-                                        <li>Tu cuenta de Origen (donde tienes tu música ahora)</li>
-                                        <li>Tu cuenta de Destino (tu nueva cuenta)</li>
-                                    </ul>
-                                </li>
-                                <li>Haz clic en <strong class="text-white">Save</strong>.</li>
+                            <ol class="list-decimal list-inside space-y-1.5 pl-1 leading-relaxed">
+                                <li>Entra al <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" class="text-spotify-green underline font-bold hover:text-spotify-hover">Spotify Developer Dashboard</a> y abre tu app.</li>
+                                <li>Ve a <strong class="text-white">Settings &rarr; Users and Access</strong> y haz clic en <strong class="text-white">Add new user</strong>.</li>
+                                <li>Agrega el correo de tu cuenta de Spotify y pulsa <strong class="text-white">Save</strong>.</li>
                             </ol>
                         </div>
-                        <p class="text-xs text-gray-400">Una vez guardados los correos en Spotify, vuelve aquí y pulsa nuevamente en <strong>«Conectar Cuenta de Origen»</strong>.</p>
                     </div>
                 </div>
             </div>
@@ -267,21 +340,20 @@
             </div>
 
             <!-- Destination Login Card -->
-            <div class="bg-spotify-card border border-spotify-border rounded-2xl p-6 shadow-xl">
+            <div id="dest-auth-card" class="bg-spotify-card border border-spotify-border rounded-2xl p-6 shadow-xl">
                 <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div class="flex items-center gap-4">
                         <div id="dest-avatar" class="w-16 h-16 rounded-full bg-spotify-dark border-2 border-spotify-border flex items-center justify-center overflow-hidden text-gray-500">
                             <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
                         </div>
                         <div>
-                            <span class="text-xs uppercase tracking-wider text-blue-400 font-semibold">Cuenta de Destino (Tu nueva cuenta)</span>
+                            <span id="dest-platform-badge" class="text-xs uppercase tracking-wider text-blue-400 font-semibold">Cuenta de Destino</span>
                             <h3 id="dest-name" class="text-xl font-bold text-white">No conectada</h3>
-                            <p id="dest-email" class="text-xs text-gray-400">Inicia sesión con tu nueva cuenta de Spotify</p>
+                            <p id="dest-email" class="text-xs text-gray-400">Inicia sesión con tu cuenta de destino</p>
                         </div>
                     </div>
                     <div>
                         <button id="btn-login-dest" class="bg-blue-500 hover:bg-blue-400 text-white font-bold px-6 py-3 rounded-full transition flex items-center gap-2 shadow-lg shadow-blue-500/20">
-                            <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.208-2.35-1.436-5.308-1.76-8.792-.963-.334.076-.666-.133-.743-.467-.076-.334.133-.666.467-.743 3.808-.87 7.076-.505 9.717 1.108.294.18.387.563.208.857zm1.224-2.72c-.227.368-.71.485-1.077.258-2.69-1.654-6.79-2.133-9.972-1.168-.415.126-.856-.11-1.002-.524-.127-.414.11-.856.524-.982 3.633-1.103 8.148-.568 11.269 1.34.367.226.484.71.258 1.076zm.105-2.835C14.692 8.95 8.085 8.73 4.707 9.756c-.494.15-1.02-.13-1.17-.624-.15-.494.13-1.02.624-1.17 3.945-1.198 11.233-.946 15.05 1.32.443.263.587.84.324 1.283-.263.443-.84.588-1.284.324z"/></svg>
                             Conectar Cuenta Destino
                         </button>
                     </div>
@@ -292,7 +364,7 @@
                     <svg class="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                     <div>
                         <strong class="font-bold">¡Atención! Has iniciado sesión con la misma cuenta.</strong>
-                        <p class="mt-1">Para transferir a tu cuenta nueva, haz clic de nuevo en Conectar Cuenta Destino y en la ventana de Spotify pulsa en <strong class="underline">«¿No eres tú?»</strong> o cierra sesión en <a href="https://spotify.com" target="_blank" class="underline font-bold">spotify.com</a> antes de continuar.</p>
+                        <p class="mt-1">Para transferir a tu cuenta nueva, cierra sesión en el navegador antes de conectar.</p>
                     </div>
                 </div>
 
@@ -303,10 +375,7 @@
                         <div class="space-y-2">
                             <strong class="font-bold text-white text-sm block">⚠️ Error 403: Tu Cuenta Destino no está agregada en el Spotify Dashboard</strong>
                             <p class="text-gray-300">
-                                Recuerda que Spotify exige que agregues el correo de <strong>AMBAS cuentas</strong> en la sección <strong class="text-white">Users and Access</strong> de tu Developer Dashboard.
-                            </p>
-                            <p class="text-amber-300 font-semibold">
-                                Entra a <a href="https://developer.spotify.com/dashboard" target="_blank" class="underline text-spotify-green font-bold">developer.spotify.com/dashboard</a>, abre tu app, ve a <strong>Settings &rarr; Users and Access</strong>, añade el correo de tu cuenta nueva y pulsa Save.
+                                Recuerda agregar el correo de tu cuenta en la sección <strong class="text-white">Users and Access</strong> de tu Spotify Developer Dashboard.
                             </p>
                         </div>
                     </div>
@@ -323,16 +392,16 @@
                         <input type="checkbox" id="opt-private" checked class="mt-1 w-4 h-4 accent-spotify-green rounded">
                         <div>
                             <label for="opt-private" class="font-semibold text-sm text-white block cursor-pointer">Crear como listas privadas</label>
-                            <p class="text-xs text-gray-400 mt-0.5">Solo tú podrás verlas en tu nueva cuenta (puedes hacerlas públicas después si lo deseas).</p>
+                            <p class="text-xs text-gray-400 mt-0.5">Solo tú podrás verlas en tu cuenta de destino.</p>
                         </div>
                     </div>
 
-                    <!-- Option 2: Liked songs options -->
-                    <div class="bg-black/50 p-4 rounded-xl border border-spotify-border flex items-start gap-3">
+                    <!-- Option 2: Liked songs options (Spotify only) -->
+                    <div id="opt-heart-songs-box" class="bg-black/50 p-4 rounded-xl border border-spotify-border flex items-start gap-3">
                         <input type="checkbox" id="opt-heart-songs" checked class="mt-1 w-4 h-4 accent-spotify-green rounded">
                         <div>
                             <label for="opt-heart-songs" class="font-semibold text-sm text-white block cursor-pointer">Guardar "Me Gusta" directamente</label>
-                            <p class="text-xs text-gray-400 mt-0.5">Dará "Me gusta" (icono corazón) a las canciones en tu nueva biblioteca.</p>
+                            <p class="text-xs text-gray-400 mt-0.5">Dará "Me gusta" (icono corazón) a las canciones en tu biblioteca.</p>
                         </div>
                     </div>
                 </div>
@@ -342,8 +411,7 @@
                         ← Volver a selección
                     </button>
                     <button id="btn-start-transfer" class="bg-spotify-green hover:bg-spotify-hover text-black font-bold py-4 px-8 rounded-xl transition flex items-center gap-2 text-base shadow-lg shadow-spotify-green/20">
-                        <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2zm1 14.5a1 1 0 01-2 0v-5a1 1 0 012 0zm-1-8a1.25 1.25 0 111.25-1.25A1.25 1.25 0 0112 8.5z"/></svg>
-                        🚀 Iniciar Transferencia Ilimitada
+                        🚀 Iniciar Transferencia
                     </button>
                 </div>
             </div>
@@ -414,7 +482,7 @@
 
                 <div>
                     <h2 class="text-3xl font-extrabold text-white">¡Transferencia Completada!</h2>
-                    <p class="text-gray-400 text-sm mt-2">Todas tus listas y canciones se han transferido a tu nueva cuenta con éxito.</p>
+                    <p class="text-gray-400 text-sm mt-2">Todas tus listas y canciones se han transferido con éxito.</p>
                 </div>
 
                 <!-- Final Stats -->
@@ -431,18 +499,14 @@
 
                 <!-- Transferred playlists list -->
                 <div class="text-left max-w-xl mx-auto space-y-2">
-                    <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400">Listas creadas en tu nueva cuenta:</h4>
+                    <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-400">Listas creadas en tu cuenta de destino:</h4>
                     <div id="final-playlists-list" class="bg-black/40 border border-spotify-border rounded-xl p-3 max-h-48 overflow-y-auto space-y-1.5 custom-scrollbar text-xs">
                         <!-- Items -->
                     </div>
                 </div>
 
                 <div class="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
-                    <a href="https://open.spotify.com" target="_blank" rel="noopener noreferrer" class="w-full sm:w-auto bg-spotify-green hover:bg-spotify-hover text-black font-bold py-3.5 px-8 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-spotify-green/20">
-                        <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.208-2.35-1.436-5.308-1.76-8.792-.963-.334.076-.666-.133-.743-.467-.076-.334.133-.666.467-.743 3.808-.87 7.076-.505 9.717 1.108.294.18.387.563.208.857zm1.224-2.72c-.227.368-.71.485-1.077.258-2.69-1.654-6.79-2.133-9.972-1.168-.415.126-.856-.11-1.002-.524-.127-.414.11-.856.524-.982 3.633-1.103 8.148-.568 11.269 1.34.367.226.484.71.258 1.076zm.105-2.835C14.692 8.95 8.085 8.73 4.707 9.756c-.494.15-1.02-.13-1.17-.624-.15-.494.13-1.02.624-1.17 3.945-1.198 11.233-.946 15.05 1.32.443.263.587.84.324 1.283-.263.443-.84.588-1.284.324z"/></svg>
-                        Abrir Spotify Web
-                    </a>
-                    <button id="btn-restart" class="w-full sm:w-auto bg-spotify-card border border-spotify-border hover:bg-spotify-hovercard text-white font-semibold py-3.5 px-6 rounded-xl transition">
+                    <button id="btn-restart" class="w-full sm:w-auto bg-spotify-green hover:bg-spotify-hover text-black font-bold py-3.5 px-8 rounded-xl transition shadow-lg shadow-spotify-green/20">
                         Nueva Transferencia
                     </button>
                 </div>
@@ -453,10 +517,10 @@
 
     <!-- Footer -->
     <footer class="border-t border-spotify-border/60 py-6 text-center text-xs text-gray-500">
-        <p>SpotTransfer es una herramienta local de código abierto para uso personal. No almacena tus datos en ningún servidor externo.</p>
+        <p>MusicTransferly es una herramienta local de código abierto para uso personal. No almacena tus datos en ningún servidor externo.</p>
     </footer>
 
-    <!-- App Script (cache-busted) -->
-    <script src="app.js?v=6"></script>
+    <!-- App Script -->
+    <script src="app.js?v=7"></script>
 </body>
 </html>
